@@ -32,4 +32,4 @@ endif()
 
 # Subdirectories
 add_subdirectory(backend)
-# frontend will be added in Phase 5
+add_subdirectory(frontend)

@@ -46,9 +46,11 @@ YtResolver::YtResolver(std::string ytdlp_path)
     // If default path does not exist, check if yt-dlp is in common portable locations
     if (!std::filesystem::exists(m_ytdlp_path)) {
         std::vector<std::string> search_paths = {
+            "bin/yt-dlp.exe",
+            "yt-dlp.exe",
             "compile/bin/yt-dlp.exe",
             "../compile/bin/yt-dlp.exe",
-            "yt-dlp.exe",
+            "../bin/yt-dlp.exe",
             "yt-dlp"
         };
         for (const auto& path : search_paths) {
