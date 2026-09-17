@@ -2,7 +2,20 @@
 
 > **YouTube Retro Audio Player** — A lightweight, modern C++20 desktop music player with the authentic look, feel, and modular docking mechanics of classic Winamp, powered by `libmpv` and `yt-dlp`.
 
+[![Build and Release](https://github.com/guimaraf/freenamp/actions/workflows/build.yml/badge.svg)](https://github.com/guimaraf/freenamp/actions/workflows/build.yml)
+[![Latest Release](https://img.shields.io/github/v/release/guimaraf/freenamp)](https://github.com/guimaraf/freenamp/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 ![Freenamp](assets/frenamp.png)
+
+### 🚀 Download (v1.0.0)
+
+| Platform | Package | Description |
+| :--- | :--- | :--- |
+| **Linux (x86_64)** | [freenamp-linux-x86_64.tar.gz](https://github.com/guimaraf/freenamp/releases/download/v1.0.0/freenamp-linux-x86_64.tar.gz) | 100% portable bundle with bundled libraries & `iniciar_freenamp.sh` launcher |
+| **Linux (x86_64)** | [Freenamp-x86_64.AppImage](https://github.com/guimaraf/freenamp/releases/download/v1.0.0/Freenamp-x86_64.AppImage) | Standalone single-file AppImage executable |
+| **Windows (x64)** | [freenamp-windows-x64.zip](https://github.com/guimaraf/freenamp/releases/download/v1.0.0/freenamp-windows-x64.zip) | Standalone portable bundle with isolated DLLs in `core/` |
+| **Checksums** | [SHA256SUMS.txt](https://github.com/guimaraf/freenamp/releases/download/v1.0.0/SHA256SUMS.txt) | Cryptographic verification |
 
 ---
 
