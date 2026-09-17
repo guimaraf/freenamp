@@ -10,7 +10,8 @@ build/*
 *.pdb
 
 # Compiled binaries and libraries in compile/
-compile/bin/*.exe
+compile/bin/*
+!compile/bin/.gitkeep
 compile/libs/*
 !compile/libs/.gitkeep
 compile/venv/

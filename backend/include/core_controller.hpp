@@ -12,7 +12,11 @@ namespace freenamp::backend {
 
 class CoreController {
 public:
+#ifdef _WIN32
     explicit CoreController(std::string ytdlp_path = "compile/bin/yt-dlp.exe");
+#else
+    explicit CoreController(std::string ytdlp_path = "bin/yt-dlp");
+#endif
     ~CoreController() = default;
 
     // High level actions

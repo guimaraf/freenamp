@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Freenamp
+GenericName=Audio Player
+Comment=Winamp 2.91 Retro YouTube Audio Player
+Exec=freenamp %U
+Icon=freenamp
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=winamp;retro;player;youtube;audio;dsp;
+MimeType=x-scheme-handler/freenamp;

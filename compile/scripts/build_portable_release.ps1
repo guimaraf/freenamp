@@ -36,7 +36,12 @@ if (Test-Path (Join-Path $distDir "libmpv-2.dll")) {
 }
 
 # Copiar extrator yt-dlp.exe para a pasta bin/
-Copy-Item -Force (Join-Path $rootDir "compile/bin/yt-dlp.exe") $distBinDir
+$ytdlpSource = Join-Path $rootDir "compile/bin/yt-dlp.exe"
+if (-not (Test-Path $ytdlpSource)) {
+    Write-Host "[Freenamp] Baixando yt-dlp.exe..."
+    curl.exe -L -o $ytdlpSource "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+}
+Copy-Item -Force $ytdlpSource $distBinDir
 
 # Copiar icone e imagem para a pasta assets/ da versao portatil
 $distAssetsDir = Join-Path $distDir "assets"
@@ -44,6 +49,9 @@ New-Item -ItemType Directory -Force -Path $distAssetsDir | Out-Null
 Copy-Item -Force (Join-Path $rootDir "assets/freenamp.ico") $distAssetsDir
 if (Test-Path (Join-Path $rootDir "assets/frenamp.png")) {
     Copy-Item -Force (Join-Path $rootDir "assets/frenamp.png") $distAssetsDir
+}
+if (Test-Path (Join-Path $rootDir "assets/freenamp.png")) {
+    Copy-Item -Force (Join-Path $rootDir "assets/freenamp.png") $distAssetsDir
 }
 
 # Copiar README.md para a raiz do pacote portatil

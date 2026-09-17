@@ -9,7 +9,11 @@
 #endif
 
 int main_app(int argc, char* argv[]) {
+#ifdef _WIN32
     freenamp::backend::CoreController core("compile/bin/yt-dlp.exe");
+#else
+    freenamp::backend::CoreController core("bin/yt-dlp");
+#endif
 
     // If an argument was passed on the command line (e.g. YouTube video or playlist URL)
     if (argc > 1) {

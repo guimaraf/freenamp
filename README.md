@@ -129,3 +129,30 @@ O **Freenamp** une a estética icônica retrô dos reprodutores de mídia cláss
    - Arraste qualquer módulo pela sua barra de título. As janelas se alinham automaticamente por magnetismo.
    - Redimensione a playlist arrastando o canto inferior direito com as três linhas diagonais (**`///`**).
    - A posição e tamanho de todas as janelas internas são gravados automaticamente e restaurados na próxima abertura.
+
+---
+
+### Compilação e Uso no Linux (100% Portátil)
+
+#### 1. Pré-requisitos de compilação (Ubuntu / Debian / Mint):
+```bash
+sudo apt update && sudo apt install -y build-essential cmake pkg-config libsdl2-dev libmpv-dev curl
+```
+
+#### 2. Gerar o pacote portátil standalone com 1 comando:
+```bash
+bash compile/scripts/build_linux_portable.sh
+```
+A pasta portátil estará pronta em `build/freenamp_portable_linux/`, contendo o binário `freenamp`, as bibliotecas em `core/`, o extrator em `bin/yt-dlp` e os arquivos de cache/assets.
+
+#### 3. Execução:
+```bash
+cd build/freenamp_portable_linux
+./freenamp
+```
+
+#### 4. Empacotar em AppImage (Opcional):
+```bash
+bash compile/scripts/build_appimage.sh
+./build/Freenamp-x86_64.AppImage
+```

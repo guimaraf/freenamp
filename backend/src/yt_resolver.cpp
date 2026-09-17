@@ -66,24 +66,80 @@ YtResolver::YtResolver(std::string ytdlp_path)
             }
         }
     }
+#else
+    // On Linux / POSIX, resolve via /proc/self/exe
+    std::error_code ec;
+    auto exePath = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (!ec) {
+        std::filesystem::path exeDir = exePath.parent_path();
+        std::vector<std::filesystem::path> posix_paths = {
+            exeDir / "bin" / "yt-dlp",
+            exeDir / "yt-dlp",
+            exeDir / "compile" / "bin" / "yt-dlp",
+            exeDir / ".." / "compile" / "bin" / "yt-dlp",
+            exeDir / ".." / ".." / "compile" / "bin" / "yt-dlp",
+            exeDir / ".." / "bin" / "yt-dlp"
+        };
+        for (const auto& p : posix_paths) {
+            if (std::filesystem::exists(p)) {
+                m_ytdlp_path = p.string();
+                std::error_code pec;
+                std::filesystem::permissions(p,
+                    std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
+                    std::filesystem::perm_options::add, pec);
+                return;
+            }
+        }
+    }
 #endif
 
     // Fallback search paths relative to CWD
-    if (!std::filesystem::exists(m_ytdlp_path)) {
+    bool need_search = !std::filesystem::exists(m_ytdlp_path);
+#ifndef _WIN32
+    if (!need_search && m_ytdlp_path.size() >= 4 &&
+        m_ytdlp_path.substr(m_ytdlp_path.size() - 4) == ".exe") {
+        need_search = true;
+    }
+#endif
+
+    if (need_search) {
         std::vector<std::string> search_paths = {
+#ifdef _WIN32
             "bin/yt-dlp.exe",
             "yt-dlp.exe",
             "compile/bin/yt-dlp.exe",
             "../compile/bin/yt-dlp.exe",
             "../bin/yt-dlp.exe",
             "yt-dlp"
+#else
+            "bin/yt-dlp",
+            "yt-dlp",
+            "compile/bin/yt-dlp",
+            "../compile/bin/yt-dlp",
+            "../bin/yt-dlp",
+            "/usr/local/bin/yt-dlp",
+            "/usr/bin/yt-dlp"
+#endif
         };
         for (const auto& path : search_paths) {
             if (std::filesystem::exists(path)) {
                 m_ytdlp_path = path;
+#ifndef _WIN32
+                std::error_code pec;
+                std::filesystem::permissions(path,
+                    std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
+                    std::filesystem::perm_options::add, pec);
+#endif
                 break;
             }
         }
+    } else {
+#ifndef _WIN32
+        std::error_code pec;
+        std::filesystem::permissions(m_ytdlp_path,
+            std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
+            std::filesystem::perm_options::add, pec);
+#endif
     }
 }
 
