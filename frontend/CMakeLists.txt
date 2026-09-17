@@ -5,6 +5,7 @@ add_executable(freenamp WIN32
     src/window_dock.cpp
     src/gui_engine.cpp
     src/views/main_view.cpp
+    src/views/info_view.cpp
     src/views/eq_view.cpp
     src/views/playlist_view.cpp
     src/views/input_modal.cpp

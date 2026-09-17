@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <array>
+#include <fstream>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -453,6 +454,77 @@ std::optional<std::string> YtResolver::get_cached_stream_url(const std::string& 
         return it->second;
     }
     return std::nullopt;
+}
+
+bool YtResolver::save_cache_to_file(const std::string& filepath) const {
+    std::lock_guard<std::mutex> lock(m_cache_mutex);
+    try {
+        json j;
+        json meta = json::object();
+        for (const auto& [k, v] : m_metadata_cache) {
+            json item;
+            item["id"] = v.id;
+            item["title"] = v.title;
+            item["uploader"] = v.uploader;
+            item["duration"] = v.duration_seconds;
+            item["original_url"] = v.original_url;
+            item["stream_url"] = v.stream_url;
+            item["is_resolved"] = v.is_resolved;
+            meta[k] = item;
+        }
+        j["metadata"] = meta;
+
+        json streams = json::object();
+        for (const auto& [k, v] : m_stream_url_cache) {
+            streams[k] = v;
+        }
+        j["streams"] = streams;
+
+        std::ofstream ofs(filepath);
+        if (!ofs.is_open()) return false;
+        ofs << j.dump(2);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool YtResolver::load_cache_from_file(const std::string& filepath) {
+    std::lock_guard<std::mutex> lock(m_cache_mutex);
+    try {
+        std::ifstream ifs(filepath);
+        if (!ifs.is_open()) return false;
+
+        json j;
+        ifs >> j;
+        if (!j.is_object()) return false;
+
+        if (j.contains("metadata") && j["metadata"].is_object()) {
+            for (auto& el : j["metadata"].items()) {
+                TrackMetadata tr;
+                tr.id = el.value().value("id", "");
+                tr.title = el.value().value("title", "Unknown Title");
+                tr.uploader = el.value().value("uploader", "Unknown Artist");
+                tr.duration_seconds = el.value().value("duration", 0);
+                tr.original_url = el.value().value("original_url", "");
+                tr.stream_url = el.value().value("stream_url", "");
+                tr.is_resolved = el.value().value("is_resolved", false);
+                m_metadata_cache[el.key()] = tr;
+            }
+        }
+
+        if (j.contains("streams") && j["streams"].is_object()) {
+            for (auto& el : j["streams"].items()) {
+                if (el.value().is_string()) {
+                    m_stream_url_cache[el.key()] = el.value().get<std::string>();
+                }
+            }
+        }
+
+        return true;
+    } catch (...) {
+        return false;
+    }
 }
 
 } // namespace freenamp::backend

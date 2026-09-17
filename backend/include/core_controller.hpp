@@ -52,6 +52,16 @@ public:
     std::string get_current_title() const;
     std::string get_status_text() const;
     std::array<float, AudioEngine::SPECTRUM_BANDS> get_spectrum_bands();
+    bool is_loading() const { return m_is_loading.load(); }
+    int get_loading_progress() const { return m_loading_progress.load(); }
+    int get_bitrate_kbps() const { return m_bitrate_kbps; }
+    int get_samplerate_khz() const { return m_samplerate_khz; }
+    std::string get_audio_codec() const { return m_audio_codec; }
+    std::string get_channels() const { return m_channels; }
+
+    // Session and cache persistence
+    void save_session();
+    void load_session();
 
     // Access to components
     PlaylistManager& get_playlist() { return m_playlist; }
@@ -75,6 +85,11 @@ private:
     std::string m_current_title = "Freenamp Ready";
     std::string m_status_message = "Ready";
     std::atomic<bool> m_is_loading = false;
+    std::atomic<int> m_loading_progress{0};
+    int m_bitrate_kbps = 160;
+    int m_samplerate_khz = 48;
+    std::string m_audio_codec = "Opus Audio";
+    std::string m_channels = "STEREO";
     EventCallback m_event_cb;
 
     void notify_event(const std::string& event_name);

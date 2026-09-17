@@ -1,6 +1,7 @@
 #include "core_controller.hpp"
 #include <iostream>
 #include <thread>
+#include <filesystem>
 
 namespace freenamp::backend {
 
@@ -14,55 +15,87 @@ void CoreController::notify_event(const std::string& event_name) {
     }
 }
 
+void CoreController::save_session() {
+    try {
+        std::filesystem::create_directories("cache");
+        m_playlist.save_to_file("cache/playlist.json");
+        m_resolver.save_cache_to_file("cache/yt_cache.json");
+    } catch (...) {}
+}
+
+void CoreController::load_session() {
+    try {
+        m_resolver.load_cache_from_file("cache/yt_cache.json");
+        if (m_playlist.load_from_file("cache/playlist.json")) {
+            auto tr = m_playlist.get_current_track();
+            if (tr.has_value()) {
+                m_current_title = tr->title;
+            }
+            m_status_message = "Pronto (" + std::to_string(m_playlist.size()) + " faixas)";
+            notify_event("playlist_updated");
+        }
+    } catch (...) {}
+}
+
 void CoreController::add_url(const std::string& url_or_id, bool play_immediately) {
     if (url_or_id.empty()) return;
 
     UrlType type = YtResolver::detect_url_type(url_or_id);
     m_is_loading = true;
-    m_status_message = "Resolvendo YouTube...";
+    m_loading_progress = 10;
+    m_status_message = "Conectando ao YouTube...";
     notify_event("loading_start");
 
     std::thread([this, url_or_id, type, play_immediately]() {
         if (type == UrlType::Playlist) {
             m_status_message = "Carregando Playlist...";
+            m_loading_progress = 30;
             auto pl = m_resolver.resolve_playlist(url_or_id);
             if (pl.has_value() && !pl->tracks.empty()) {
+                m_loading_progress = 85;
                 bool was_empty = m_playlist.empty();
                 m_playlist.add_playlist(pl.value());
                 m_status_message = "Playlist adicionada: " + std::to_string(pl->tracks.size()) + " faixas";
                 notify_event("playlist_updated");
 
                 m_is_loading = false;
+                m_loading_progress = 100;
                 notify_event("loading_end");
 
                 if (play_immediately || was_empty) {
                     play_track_index(m_playlist.get_current_index() < 0 ? 0 : m_playlist.get_current_index());
                 }
+                save_session();
                 return;
             } else {
                 m_status_message = "Falha ao carregar playlist";
             }
         } else {
             m_status_message = "Buscando metadados do video...";
+            m_loading_progress = 35;
             auto track = m_resolver.resolve_track_info(url_or_id, true);
             if (track.has_value()) {
+                m_loading_progress = 90;
                 bool was_empty = m_playlist.empty();
                 m_playlist.add_track(track.value());
                 m_status_message = "Faixa adicionada: " + track->title;
                 notify_event("playlist_updated");
 
                 m_is_loading = false;
+                m_loading_progress = 100;
                 notify_event("loading_end");
 
                 if (play_immediately || was_empty) {
                     play_track_index(m_playlist.size() - 1);
                 }
+                save_session();
                 return;
             } else {
                 m_status_message = "Falha ao resolver video";
             }
         }
         m_is_loading = false;
+        m_loading_progress = 0;
         notify_event("loading_end");
     }).detach();
 }
@@ -76,18 +109,22 @@ void CoreController::play_current_playlist_track() {
 
     if (track.is_resolved && !track.stream_url.empty()) {
         m_status_message = "Tocando: " + track.title;
+        m_loading_progress = 100;
         m_audio.load_url(track.stream_url, true);
         notify_event("track_changed");
     } else {
         if (m_is_loading.exchange(true)) {
             return; // Já existe uma resolução em andamento
         }
+        m_loading_progress = 25;
         m_status_message = "Resolvendo stream de audio...";
         notify_event("track_loading");
 
         std::thread([this, track_id = track.id, idx = m_playlist.get_current_index()]() {
+            m_loading_progress = 50;
             auto stream_url = m_resolver.resolve_stream_url(track_id);
             if (stream_url.has_value() && !stream_url->empty()) {
+                m_loading_progress = 85;
                 if (idx >= 0) {
                     m_playlist.set_track_stream_url(static_cast<size_t>(idx), stream_url.value());
                 }
@@ -95,11 +132,13 @@ void CoreController::play_current_playlist_track() {
                 if (m_playlist.get_current_index() == idx) {
                     auto tr = m_playlist.get_track(idx);
                     m_status_message = tr ? ("Tocando: " + tr->title) : "Reproduzindo";
+                    m_loading_progress = 100;
                     m_audio.load_url(stream_url.value(), true);
                     notify_event("track_changed");
                 }
             } else {
                 m_status_message = "Erro ao reproduzir stream";
+                m_loading_progress = 0;
             }
             m_is_loading = false;
             notify_event("loading_end");

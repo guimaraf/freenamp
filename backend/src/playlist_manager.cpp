@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <numeric>
 #include <iostream>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 namespace freenamp::backend {
 
@@ -76,6 +78,67 @@ void PlaylistManager::set_track_stream_url(size_t index, const std::string& stre
     if (index < m_tracks.size()) {
         m_tracks[index].stream_url = stream_url;
         m_tracks[index].is_resolved = !stream_url.empty();
+    }
+}
+
+bool PlaylistManager::save_to_file(const std::string& filepath) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    try {
+        nlohmann::json j = nlohmann::json::array();
+        for (const auto& tr : m_tracks) {
+            nlohmann::json item;
+            item["id"] = tr.id;
+            item["title"] = tr.title;
+            item["uploader"] = tr.uploader;
+            item["duration"] = tr.duration_seconds;
+            item["original_url"] = tr.original_url;
+            item["stream_url"] = tr.stream_url;
+            item["is_resolved"] = tr.is_resolved;
+            j.push_back(item);
+        }
+
+        std::ofstream ofs(filepath);
+        if (!ofs.is_open()) return false;
+        ofs << j.dump(2);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool PlaylistManager::load_from_file(const std::string& filepath) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    try {
+        std::ifstream ifs(filepath);
+        if (!ifs.is_open()) return false;
+
+        nlohmann::json j;
+        ifs >> j;
+        if (!j.is_array()) return false;
+
+        m_tracks.clear();
+        for (const auto& item : j) {
+            TrackMetadata tr;
+            tr.id = item.value("id", "");
+            tr.title = item.value("title", "Unknown Title");
+            tr.uploader = item.value("uploader", "Unknown Artist");
+            tr.duration_seconds = item.value("duration", 0);
+            tr.original_url = item.value("original_url", "");
+            tr.stream_url = item.value("stream_url", "");
+            tr.is_resolved = item.value("is_resolved", false);
+            m_tracks.push_back(tr);
+        }
+
+        if (!m_tracks.empty()) {
+            m_current_index = 0;
+        } else {
+            m_current_index = -1;
+        }
+
+        rebuild_shuffle_indices();
+        return true;
+    } catch (...) {
+        return false;
     }
 }
 

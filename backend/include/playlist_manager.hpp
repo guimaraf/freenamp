@@ -28,6 +28,8 @@ public:
     void clear();
     void move_track(size_t from_idx, size_t to_idx);
     void set_track_stream_url(size_t index, const std::string& stream_url);
+    bool save_to_file(const std::string& filepath) const;
+    bool load_from_file(const std::string& filepath);
 
     // Getters
     size_t size() const;

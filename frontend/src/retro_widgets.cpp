@@ -79,6 +79,32 @@ void RetroWidgets::draw_button(SDL_Renderer* renderer, const Rect& rect, const s
     RetroFont::draw_text(renderer, label, tx, ty, text_c, 1);
 }
 
+void RetroWidgets::draw_button_with_led(SDL_Renderer* renderer, const Rect& rect, const std::string& label, bool pressed, bool active) {
+    fill_rect(renderer, rect.x, rect.y, rect.w, rect.h, Palette::ButtonFace);
+
+    if (pressed) {
+        draw_bevel(renderer, rect.x, rect.y, rect.w, rect.h, Palette::ButtonLo, Palette::ButtonHi);
+    } else {
+        draw_bevel(renderer, rect.x, rect.y, rect.w, rect.h, Palette::ButtonHi, Palette::ButtonLo);
+    }
+
+    // Small LED lamp on the left
+    int led_x = rect.x + 4 + (pressed ? 1 : 0);
+    int led_y = rect.y + rect.h / 2 - 2 + (pressed ? 1 : 0);
+    Color led_color = active ? Palette::LedGreen : Palette::PanelBorderLo;
+    fill_rect(renderer, led_x, led_y, 4, 4, led_color);
+    draw_bevel(renderer, led_x - 1, led_y - 1, 6, 6, Palette::PanelBorderLo, Palette::PanelBorderHi);
+
+    // Text centered in remaining space
+    int avail_w = rect.w - 12;
+    int text_w = static_cast<int>(label.size()) * 8;
+    int tx = rect.x + 10 + (avail_w - text_w) / 2 + (pressed ? 1 : 0);
+    int ty = rect.y + (rect.h - 8) / 2 + (pressed ? 1 : 0);
+
+    Color text_c = active ? Palette::TextActive : Palette::ButtonText;
+    RetroFont::draw_text(renderer, label, tx, ty, text_c, 1);
+}
+
 void RetroWidgets::draw_transport_icon(SDL_Renderer* renderer, const Rect& rect, const std::string& icon_type, bool pressed) {
     fill_rect(renderer, rect.x, rect.y, rect.w, rect.h, Palette::ButtonFace);
 
@@ -94,15 +120,17 @@ void RetroWidgets::draw_transport_icon(SDL_Renderer* renderer, const Rect& rect,
     SDL_SetRenderDrawColor(renderer, Palette::ButtonText.r, Palette::ButtonText.g, Palette::ButtonText.b, 255);
 
     if (icon_type == "prev") {
-        // |<
+        // |< (Vertical bar on left + triangle pointing LEFT)
         SDL_RenderDrawLine(renderer, cx - 4, cy - 4, cx - 4, cy + 4);
-        for (int i = 0; i < 5; ++i) {
-            SDL_RenderDrawLine(renderer, cx + i, cy - i, cx + i, cy + i);
+        for (int i = 0; i <= 5; ++i) {
+            int half_h = (i * 4) / 5;
+            SDL_RenderDrawLine(renderer, cx - 2 + i, cy - half_h, cx - 2 + i, cy + half_h);
         }
     } else if (icon_type == "play") {
-        // >
-        for (int i = 0; i < 7; ++i) {
-            SDL_RenderDrawLine(renderer, cx - 3 + i, cy - i, cx - 3 + i, cy + i);
+        // > (Triangle pointing RIGHT)
+        for (int i = 0; i <= 6; ++i) {
+            int half_h = 5 - (i * 5) / 6;
+            SDL_RenderDrawLine(renderer, cx - 3 + i, cy - half_h, cx - 3 + i, cy + half_h);
         }
     } else if (icon_type == "pause") {
         // ||
@@ -115,9 +143,10 @@ void RetroWidgets::draw_transport_icon(SDL_Renderer* renderer, const Rect& rect,
         SDL_Rect sq = { cx - 4, cy - 4, 8, 8 };
         SDL_RenderFillRect(renderer, &sq);
     } else if (icon_type == "next") {
-        // >|
-        for (int i = 0; i < 5; ++i) {
-            SDL_RenderDrawLine(renderer, cx - 4 + i, cy - i, cx - 4 + i, cy + i);
+        // >| (Triangle pointing RIGHT + vertical bar on right)
+        for (int i = 0; i <= 5; ++i) {
+            int half_h = 4 - (i * 4) / 5;
+            SDL_RenderDrawLine(renderer, cx - 4 + i, cy - half_h, cx - 4 + i, cy + half_h);
         }
         SDL_RenderDrawLine(renderer, cx + 3, cy - 4, cx + 3, cy + 4);
     } else if (icon_type == "eject") {
@@ -252,6 +281,47 @@ void RetroWidgets::draw_spectrum(SDL_Renderer* renderer, const Rect& rect, const
             }
         }
     }
+}
+
+void RetroWidgets::draw_progress_bar(SDL_Renderer* renderer, const Rect& rect, float progress_0_to_1, const std::string& text) {
+    draw_recessed_box(renderer, rect);
+
+    float norm = std::clamp(progress_0_to_1, 0.0f, 1.0f);
+    int inner_x = rect.x + 2;
+    int inner_y = rect.y + 2;
+    int inner_w = rect.w - 4;
+    int inner_h = rect.h - 4;
+
+    int block_w = 4;
+    int block_gap = 1;
+    int num_blocks = inner_w / (block_w + block_gap);
+    int active_blocks = static_cast<int>(norm * num_blocks);
+
+    for (int b = 0; b < active_blocks; ++b) {
+        int bx = inner_x + b * (block_w + block_gap);
+        Color col = Palette::LedGreen;
+        if (b > num_blocks * 0.8f) col = Palette::LedYellow;
+        fill_rect(renderer, bx, inner_y, block_w, inner_h, col);
+    }
+
+    if (!text.empty()) {
+        int tx = rect.x + (rect.w - static_cast<int>(text.size()) * 8) / 2;
+        int ty = rect.y + (rect.h - 8) / 2;
+        RetroFont::draw_text(renderer, text, tx, ty, Palette::TextActive, 1);
+    }
+}
+
+void RetroWidgets::draw_resize_grip(SDL_Renderer* renderer, int x, int y) {
+    // 3 diagonal lines in bottom right corner
+    SDL_SetRenderDrawColor(renderer, Palette::PanelBorderHi.r, Palette::PanelBorderHi.g, Palette::PanelBorderHi.b, 255);
+    SDL_RenderDrawLine(renderer, x - 3, y, x, y - 3);
+    SDL_RenderDrawLine(renderer, x - 6, y, x, y - 6);
+    SDL_RenderDrawLine(renderer, x - 9, y, x, y - 9);
+
+    SDL_SetRenderDrawColor(renderer, Palette::PanelBorderLo.r, Palette::PanelBorderLo.g, Palette::PanelBorderLo.b, 255);
+    SDL_RenderDrawLine(renderer, x - 4, y, x, y - 4);
+    SDL_RenderDrawLine(renderer, x - 7, y, x, y - 7);
+    SDL_RenderDrawLine(renderer, x - 10, y, x, y - 10);
 }
 
 } // namespace freenamp::frontend

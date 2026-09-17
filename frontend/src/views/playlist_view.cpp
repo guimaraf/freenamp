@@ -4,25 +4,34 @@
 
 namespace freenamp::frontend {
 
-PlaylistView::PlaylistView(int x, int y, int w, int h) {
-    m_bounds.x = x;
-    m_bounds.y = y;
-    m_bounds.w = w;
-    m_bounds.h = h;
+void PlaylistView::set_size(int w, int h) {
+    m_bounds.w = std::max(275, w);
+    m_bounds.h = std::max(140, h);
 
-    m_list_box.w = w - 30;
-    m_list_box.h = h - 54;
-    m_scrollbar.x = w - 18;
+    m_list_box.x = 10;
+    m_list_box.y = 20;
+    m_list_box.w = m_bounds.w - 30;
+    m_list_box.h = m_bounds.h - 54;
+
+    m_scrollbar.x = m_bounds.w - 18;
+    m_scrollbar.y = 20;
+    m_scrollbar.w = 10;
     m_scrollbar.h = m_list_box.h;
 
-    int btn_y = h - 26;
+    int btn_y = m_bounds.h - 26;
     m_btn_add.y = btn_y;
     m_btn_rem.y = btn_y;
     m_btn_clear.y = btn_y;
-    m_btn_up.x = w - 48;
+    m_btn_up.x = m_bounds.w - 48;
     m_btn_up.y = btn_y;
-    m_btn_down.x = w - 24;
+    m_btn_down.x = m_bounds.w - 24;
     m_btn_down.y = btn_y;
+}
+
+PlaylistView::PlaylistView(int x, int y, int w, int h) {
+    m_bounds.x = x;
+    m_bounds.y = y;
+    set_size(w, h);
 }
 
 void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core) {
@@ -44,7 +53,8 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
 
     int line_h = 12;
     int visible_lines = list_r.h / line_h;
-    int total_tracks = static_cast<int>(tracks.size());
+    m_total_tracks = static_cast<int>(tracks.size());
+    int total_tracks = m_total_tracks;
 
     // Clamp scroll offset
     if (m_scroll_offset > total_tracks - visible_lines) {
@@ -127,6 +137,9 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
     std::string total_dur = backend::YtResolver::format_duration(playlist.get_total_duration());
     std::string info_text = std::to_string(total_tracks) + " faixas / " + total_dur;
     RetroFont::draw_text(renderer, info_text, bx + 165, by + m_bounds.h - 38, Palette::TextDim, 1);
+
+    // 6. Resize grip (///) in bottom right corner
+    RetroWidgets::draw_resize_grip(renderer, bx + m_bounds.w - 3, by + m_bounds.h - 3);
 }
 
 bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& core, bool& open_url_dialog, bool& close_requested) {
@@ -134,6 +147,16 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
 
     int bx = m_bounds.x;
     int by = m_bounds.y;
+
+    // Check resize grip (bottom right corner 16x16)
+    if (mx >= bx + m_bounds.w - 16 && my >= by + m_bounds.h - 16) {
+        m_is_resizing = true;
+        m_resize_start_w = m_bounds.w;
+        m_resize_start_h = m_bounds.h;
+        m_resize_start_mx = mx;
+        m_resize_start_my = my;
+        return true;
+    }
 
     // Title bar check
     if (my >= by && my <= by + 16) {
@@ -173,9 +196,10 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
         return true;
     }
 
-    // Scrollbar click
+    // Scrollbar click & drag
     Rect sb_r = { bx + m_scrollbar.x, by + m_scrollbar.y, m_scrollbar.w, m_scrollbar.h };
     if (sb_r.contains(mx, my)) {
+        m_dragging_scrollbar = true;
         float click_ratio = static_cast<float>(my - sb_r.y) / static_cast<float>(sb_r.h);
         int total = static_cast<int>(core.get_playlist().size());
         int visible = m_list_box.h / 12;
@@ -236,10 +260,22 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
 
 void PlaylistView::handle_mouse_up(int /*mx*/, int /*my*/) {
     m_dragging_window = false;
+    m_is_resizing = false;
+    m_dragging_scrollbar = false;
 }
 
 void PlaylistView::handle_mouse_move(int mx, int my) {
-    if (m_dragging_window) {
+    if (m_is_resizing) {
+        int nw = m_resize_start_w + (mx - m_resize_start_mx);
+        int nh = m_resize_start_h + (my - m_resize_start_my);
+        set_size(nw, nh);
+    } else if (m_dragging_scrollbar) {
+        Rect sb_r = { m_bounds.x + m_scrollbar.x, m_bounds.y + m_scrollbar.y, m_scrollbar.w, m_scrollbar.h };
+        float click_ratio = static_cast<float>(my - sb_r.y) / static_cast<float>(sb_r.h);
+        int visible = m_list_box.h / 12;
+        float clamped_ratio = std::clamp(click_ratio, 0.0f, 1.0f);
+        m_scroll_offset = std::clamp(static_cast<int>(clamped_ratio * m_total_tracks), 0, std::max(0, m_total_tracks - visible));
+    } else if (m_dragging_window) {
         m_bounds.x = mx - m_drag_off_x;
         m_bounds.y = my - m_drag_off_y;
     }

@@ -110,6 +110,11 @@ void GuiEngine::process_events(backend::CoreController& core) {
                 continue;
             }
 
+            bool info_close = false;
+            if (m_info_view.is_visible() && m_info_view.handle_mouse_down(mx, my, core, info_close)) {
+                continue;
+            }
+
             bool pl_add = false;
             bool pl_close = false;
             if (m_playlist_view.is_visible() && m_playlist_view.handle_mouse_down(mx, my, core, pl_add, pl_close)) {
@@ -127,15 +132,26 @@ void GuiEngine::process_events(backend::CoreController& core) {
             if (m_main_view.is_dragging_window()) {
                 Rect mb = m_main_view.get_bounds();
                 std::vector<Rect> others;
+                if (m_info_view.is_visible()) others.push_back(m_info_view.get_bounds());
                 if (m_eq_view.is_visible()) others.push_back(m_eq_view.get_bounds());
                 if (m_playlist_view.is_visible()) others.push_back(m_playlist_view.get_bounds());
                 WindowDock::snap(mb, others, m_width, m_height);
                 m_main_view.set_position(mb.x, mb.y);
             }
 
+            if (m_info_view.is_dragging_window() && m_info_view.is_visible()) {
+                Rect ib = m_info_view.get_bounds();
+                std::vector<Rect> others = { m_main_view.get_bounds() };
+                if (m_eq_view.is_visible()) others.push_back(m_eq_view.get_bounds());
+                if (m_playlist_view.is_visible()) others.push_back(m_playlist_view.get_bounds());
+                WindowDock::snap(ib, others, m_width, m_height);
+                m_info_view.set_position(ib.x, ib.y);
+            }
+
             if (m_eq_view.is_dragging_window() && m_eq_view.is_visible()) {
                 Rect eb = m_eq_view.get_bounds();
                 std::vector<Rect> others = { m_main_view.get_bounds() };
+                if (m_info_view.is_visible()) others.push_back(m_info_view.get_bounds());
                 if (m_playlist_view.is_visible()) others.push_back(m_playlist_view.get_bounds());
                 WindowDock::snap(eb, others, m_width, m_height);
                 m_eq_view.set_position(eb.x, eb.y);
@@ -144,12 +160,14 @@ void GuiEngine::process_events(backend::CoreController& core) {
             if (m_playlist_view.is_dragging_window() && m_playlist_view.is_visible()) {
                 Rect pb = m_playlist_view.get_bounds();
                 std::vector<Rect> others = { m_main_view.get_bounds() };
+                if (m_info_view.is_visible()) others.push_back(m_info_view.get_bounds());
                 if (m_eq_view.is_visible()) others.push_back(m_eq_view.get_bounds());
                 WindowDock::snap(pb, others, m_width, m_height);
                 m_playlist_view.set_position(pb.x, pb.y);
             }
 
             m_main_view.handle_mouse_up(mx, my);
+            m_info_view.handle_mouse_up(mx, my);
             m_eq_view.handle_mouse_up(mx, my);
             m_playlist_view.handle_mouse_up(mx, my);
         }
@@ -167,6 +185,12 @@ void GuiEngine::process_events(backend::CoreController& core) {
                 int dx = new_mb.x - old_mb.x;
                 int dy = new_mb.y - old_mb.y;
 
+                // If Info View is docked to Main, move it too
+                if (m_info_view.is_visible() && WindowDock::are_docked(old_mb, m_info_view.get_bounds())) {
+                    Rect ib = m_info_view.get_bounds();
+                    m_info_view.set_position(ib.x + dx, ib.y + dy);
+                }
+
                 // If Equalizer is docked to Main, move it too
                 if (m_eq_view.is_visible() && WindowDock::are_docked(old_mb, m_eq_view.get_bounds())) {
                     Rect eb = m_eq_view.get_bounds();
@@ -180,6 +204,7 @@ void GuiEngine::process_events(backend::CoreController& core) {
                 }
             } else {
                 m_main_view.handle_mouse_move(mx, my, core);
+                m_info_view.handle_mouse_move(mx, my);
                 m_eq_view.handle_mouse_move(mx, my, core);
                 m_playlist_view.handle_mouse_move(mx, my);
             }
@@ -230,25 +255,32 @@ void GuiEngine::render(backend::CoreController& core) {
     // 1. Render Main Player Window
     m_main_view.render(m_renderer, core);
 
-    // 2. Render Equalizer Window
+    // 2. Render Info Window
+    m_info_view.render(m_renderer, core);
+
+    // 3. Render Equalizer Window
     m_eq_view.render(m_renderer, core);
 
-    // 3. Render Playlist Window
+    // 4. Render Playlist Window
     m_playlist_view.render(m_renderer, core);
 
-    // 4. Render Input Modal (if open)
+    // 5. Render Input Modal (if open)
     m_input_modal.render(m_renderer, m_width, m_height);
 
     SDL_RenderPresent(m_renderer);
 }
 
 void GuiEngine::run(backend::CoreController& core) {
+    core.load_session();
+
     while (m_running) {
         process_events(core);
         core.update();
         render(core);
         SDL_Delay(16); // Cap at ~60 FPS
     }
+
+    core.save_session();
 }
 
 } // namespace freenamp::frontend

@@ -39,8 +39,8 @@ private:
 
     Rect m_btn_eq{ 220, 56, 23, 12 };
     Rect m_btn_pl{ 244, 56, 23, 12 };
-    Rect m_btn_shuf{ 164, 88, 46, 15 };
-    Rect m_btn_rep{ 212, 88, 28, 15 };
+    Rect m_btn_shuf{ 166, 88, 50, 18 };
+    Rect m_btn_rep{ 220, 88, 40, 18 };
 
     Rect m_slider_seek{ 16, 73, 243, 10 };
     Rect m_slider_vol{ 105, 56, 68, 10 };

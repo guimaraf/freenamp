@@ -16,6 +16,9 @@ public:
     // 3D beveled button with text or symbol
     static void draw_button(SDL_Renderer* renderer, const Rect& rect, const std::string& label, bool pressed = false, bool active = false);
 
+    // Classic toggle button with indicator LED lamp (SHUFFLE, REPEAT)
+    static void draw_button_with_led(SDL_Renderer* renderer, const Rect& rect, const std::string& label, bool pressed = false, bool active = false);
+
     // Small icon button (Prev, Play, Pause, Stop, Next, Eject)
     static void draw_transport_icon(SDL_Renderer* renderer, const Rect& rect, const std::string& icon_type, bool pressed = false);
 
@@ -30,6 +33,12 @@ public:
 
     // Recessed dark display box (for counters, marquee, playlist listbox)
     static void draw_recessed_box(SDL_Renderer* renderer, const Rect& rect);
+
+    // Segmented LED progress bar for loading / buffering
+    static void draw_progress_bar(SDL_Renderer* renderer, const Rect& rect, float progress_0_to_1, const std::string& text = "");
+
+    // Diagonal resize grip (///) in bottom right corner
+    static void draw_resize_grip(SDL_Renderer* renderer, int x, int y);
 };
 
 } // namespace freenamp::frontend

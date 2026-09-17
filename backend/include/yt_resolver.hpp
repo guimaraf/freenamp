@@ -60,6 +60,8 @@ public:
     void clear_cache();
     bool has_cached_stream_url(const std::string& id) const;
     std::optional<std::string> get_cached_stream_url(const std::string& id) const;
+    bool save_cache_to_file(const std::string& filepath) const;
+    bool load_cache_from_file(const std::string& filepath);
 
     const std::string& get_ytdlp_path() const { return m_ytdlp_path; }
     void set_ytdlp_path(const std::string& path) { m_ytdlp_path = path; }

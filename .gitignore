@@ -14,3 +14,7 @@ compile/bin/*.exe
 compile/libs/*
 !compile/libs/.gitkeep
 compile/venv/
+
+# Runtime session and playback cache
+cache/*
+!cache/.gitkeep

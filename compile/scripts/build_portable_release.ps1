@@ -12,6 +12,7 @@ cmake --build $buildDir --config Release
 Write-Host "[Freenamp] Criando diretorio de distribuicao portatil: $distDir"
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 New-Item -ItemType Directory -Force -Path $distBinDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $distDir "cache") | Out-Null
 
 # Copiar executavel principal e DLLs de execucao
 Copy-Item -Force (Join-Path $buildDir "frontend/freenamp.exe") $distDir

@@ -33,25 +33,11 @@ void MainView::render(SDL_Renderer* renderer, backend::CoreController& core) {
     double pos = core.get_position();
     int min = static_cast<int>(pos) / 60;
     int sec = static_cast<int>(pos) % 60;
-    RetroFont::draw_led_clock(renderer, min, sec, false, bx + 34, by + 37, Palette::LedGreen);
+    RetroFont::draw_led_clock(renderer, min, sec, false, bx + 55, by + 38, Palette::LedGreen);
 
     // Track Number (small 7-seg)
     int cur_idx = core.get_playlist().get_current_index();
-    RetroFont::draw_led_track_num(renderer, cur_idx >= 0 ? cur_idx + 1 : 0, bx + 18, by + 40, Palette::LedGreen);
-
-    // Technical indicators (KBPS, KHZ, STEREO)
-    RetroFont::draw_text(renderer, "160", bx + 115, by + 38, Palette::LedGreen, 1);
-    RetroFont::draw_text(renderer, "kbps", bx + 142, by + 38, Palette::TextDim, 1);
-    RetroFont::draw_text(renderer, "48", bx + 115, by + 48, Palette::LedGreen, 1);
-    RetroFont::draw_text(renderer, "kHz", bx + 135, by + 48, Palette::TextDim, 1);
-
-    RetroFont::draw_text(renderer, "STEREO", bx + 165, by + 38, Palette::LedGreen, 1);
-    RetroFont::draw_text(renderer, core.get_status_text(), bx + 165, by + 48, Palette::TextDim, 1);
-
-    // Spectrum Analyzer
-    Rect spec_rect = { bx + 16, by + 56, 80, 12 };
-    auto spectrum = core.get_spectrum_bands();
-    RetroWidgets::draw_spectrum(renderer, spec_rect, spectrum);
+    RetroFont::draw_led_track_num(renderer, cur_idx >= 0 ? cur_idx + 1 : 0, bx + 26, by + 41, Palette::LedGreen);
 
     // 3. Sliders
     // Volume Slider
@@ -78,12 +64,12 @@ void MainView::render(SDL_Renderer* renderer, backend::CoreController& core) {
     RetroWidgets::draw_button(renderer, pl_r, "PL", m_pressed_button == "pl", true);
 
     Rect shuf_r = { bx + m_btn_shuf.x, by + m_btn_shuf.y, m_btn_shuf.w, m_btn_shuf.h };
-    RetroWidgets::draw_button(renderer, shuf_r, "SHUFFLE", m_pressed_button == "shuf", core.is_shuffle());
+    RetroWidgets::draw_button_with_led(renderer, shuf_r, "SHUF", m_pressed_button == "shuf", core.is_shuffle());
 
     Rect rep_r = { bx + m_btn_rep.x, by + m_btn_rep.y, m_btn_rep.w, m_btn_rep.h };
     std::string rep_label = (core.get_repeat() == backend::RepeatMode::One) ? "REP 1" : "REP";
     bool rep_active = (core.get_repeat() != backend::RepeatMode::Off);
-    RetroWidgets::draw_button(renderer, rep_r, rep_label, m_pressed_button == "rep", rep_active);
+    RetroWidgets::draw_button_with_led(renderer, rep_r, rep_label, m_pressed_button == "rep", rep_active);
 
     // 5. Transport Buttons
     Rect prev_r = { bx + m_btn_prev.x, by + m_btn_prev.y, m_btn_prev.w, m_btn_prev.h };

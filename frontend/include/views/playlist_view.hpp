@@ -22,6 +22,7 @@ public:
 
     Rect get_bounds() const { return m_bounds; }
     void set_position(int x, int y) { m_bounds.x = x; m_bounds.y = y; }
+    void set_size(int w, int h);
 
     bool is_visible() const { return m_visible; }
     void set_visible(bool v) { m_visible = v; }
@@ -30,6 +31,7 @@ public:
     int get_selected_index() const { return m_selected_index; }
 
     bool is_dragging_window() const { return m_dragging_window; }
+    bool is_resizing() const { return m_is_resizing; }
     int get_drag_offset_x() const { return m_drag_off_x; }
     int get_drag_offset_y() const { return m_drag_off_y; }
 
@@ -41,8 +43,19 @@ private:
     int m_drag_off_x = 0;
     int m_drag_off_y = 0;
 
+    // Resizing state
+    bool m_is_resizing = false;
+    int m_resize_start_w = 0;
+    int m_resize_start_h = 0;
+    int m_resize_start_mx = 0;
+    int m_resize_start_my = 0;
+
+    // Scroll dragging state
+    bool m_dragging_scrollbar = false;
+
     int m_selected_index = 0;
     int m_scroll_offset = 0; // First visible track index
+    int m_total_tracks = 0;
 
     // Double-click detection
     std::chrono::steady_clock::time_point m_last_click_time;
