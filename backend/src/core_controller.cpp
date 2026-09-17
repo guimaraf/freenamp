@@ -32,9 +32,13 @@ void CoreController::add_url(const std::string& url_or_id, bool play_immediately
                 m_status_message = "Playlist adicionada: " + std::to_string(pl->tracks.size()) + " faixas";
                 notify_event("playlist_updated");
 
+                m_is_loading = false;
+                notify_event("loading_end");
+
                 if (play_immediately || was_empty) {
                     play_track_index(m_playlist.get_current_index() < 0 ? 0 : m_playlist.get_current_index());
                 }
+                return;
             } else {
                 m_status_message = "Falha ao carregar playlist";
             }
@@ -47,9 +51,13 @@ void CoreController::add_url(const std::string& url_or_id, bool play_immediately
                 m_status_message = "Faixa adicionada: " + track->title;
                 notify_event("playlist_updated");
 
+                m_is_loading = false;
+                notify_event("loading_end");
+
                 if (play_immediately || was_empty) {
                     play_track_index(m_playlist.size() - 1);
                 }
+                return;
             } else {
                 m_status_message = "Falha ao resolver video";
             }
@@ -80,9 +88,13 @@ void CoreController::play_current_playlist_track() {
         std::thread([this, track_id = track.id, idx = m_playlist.get_current_index()]() {
             auto stream_url = m_resolver.resolve_stream_url(track_id);
             if (stream_url.has_value() && !stream_url->empty()) {
+                if (idx >= 0) {
+                    m_playlist.set_track_stream_url(static_cast<size_t>(idx), stream_url.value());
+                }
                 // Verify we are still on the same index
                 if (m_playlist.get_current_index() == idx) {
-                    m_status_message = "Reproduzindo";
+                    auto tr = m_playlist.get_track(idx);
+                    m_status_message = tr ? ("Tocando: " + tr->title) : "Reproduzindo";
                     m_audio.load_url(stream_url.value(), true);
                     notify_event("track_changed");
                 }
@@ -90,6 +102,7 @@ void CoreController::play_current_playlist_track() {
                 m_status_message = "Erro ao reproduzir stream";
             }
             m_is_loading = false;
+            notify_event("loading_end");
         }).detach();
     }
 }

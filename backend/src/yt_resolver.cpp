@@ -43,7 +43,29 @@ std::wstring to_wide_string(const std::string& str) {
 
 YtResolver::YtResolver(std::string ytdlp_path)
     : m_ytdlp_path(std::move(ytdlp_path)) {
-    // If default path does not exist, check if yt-dlp is in common portable locations
+    // Check executable directory first on Windows
+#ifdef _WIN32
+    wchar_t exePath[MAX_PATH];
+    if (GetModuleFileNameW(NULL, exePath, MAX_PATH) > 0) {
+        std::filesystem::path exeDir = std::filesystem::path(exePath).parent_path();
+        std::vector<std::filesystem::path> win_paths = {
+            exeDir / "bin" / "yt-dlp.exe",
+            exeDir / "yt-dlp.exe",
+            exeDir / "compile" / "bin" / "yt-dlp.exe",
+            exeDir / ".." / "compile" / "bin" / "yt-dlp.exe",
+            exeDir / ".." / ".." / "compile" / "bin" / "yt-dlp.exe",
+            exeDir / ".." / "bin" / "yt-dlp.exe"
+        };
+        for (const auto& p : win_paths) {
+            if (std::filesystem::exists(p)) {
+                m_ytdlp_path = p.string();
+                return;
+            }
+        }
+    }
+#endif
+
+    // Fallback search paths relative to CWD
     if (!std::filesystem::exists(m_ytdlp_path)) {
         std::vector<std::string> search_paths = {
             "bin/yt-dlp.exe",
@@ -62,24 +84,72 @@ YtResolver::YtResolver(std::string ytdlp_path)
     }
 }
 
-UrlType YtResolver::detect_url_type(const std::string& input) {
+std::string YtResolver::sanitize_url(const std::string& input) {
+    if (input.empty()) return "";
+
+    // 1. Strip non-printable ASCII and control codes (like \x16 from Ctrl+V)
+    std::string clean;
+    clean.reserve(input.size());
+    for (unsigned char c : input) {
+        if (c >= 32 && c <= 126) {
+            clean += static_cast<char>(c);
+        }
+    }
+
+    // 2. Trim whitespace
+    size_t start = clean.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    size_t end = clean.find_last_not_of(" \t\r\n");
+    clean = clean.substr(start, end - start + 1);
+
+    // 3. Handle duplicate paste (e.g. "https://...https://...")
+    size_t second_http = clean.find("http", 4);
+    if (second_http != std::string::npos) {
+        clean = clean.substr(0, second_http);
+        end = clean.find_last_not_of(" \t\r\n");
+        if (end != std::string::npos) clean = clean.substr(0, end + 1);
+    }
+
+    // 4. Strip radio/mix parameters (&list=RD... or &list=UL...) which fail on yt-dlp flat-playlist
+    size_t rd_pos = clean.find("&list=RD");
+    if (rd_pos != std::string::npos) {
+        clean = clean.substr(0, rd_pos);
+    }
+    size_t ul_pos = clean.find("&list=UL");
+    if (ul_pos != std::string::npos) {
+        clean = clean.substr(0, ul_pos);
+    }
+
+    return clean;
+}
+
+UrlType YtResolver::detect_url_type(const std::string& raw_input) {
+    std::string input = sanitize_url(raw_input);
     if (input.empty()) return UrlType::Unknown;
 
-    // Check for playlist indicators
-    if (input.find("list=") != std::string::npos ||
-        input.find("playlist?list=") != std::string::npos) {
+    // A pure playlist URL has "playlist?list="
+    if (input.find("playlist?list=") != std::string::npos) {
         return UrlType::Playlist;
     }
 
-    // Check for single video indicators
-    if (input.find("youtube.com/watch") != std::string::npos ||
+    // If it has watch?v=, it is ALWAYS a Single Video (even if it has &list=)
+    if (input.find("watch?v=") != std::string::npos ||
         input.find("youtu.be/") != std::string::npos ||
-        input.find("youtube.com/shorts/") != std::string::npos ||
-        (input.length() == 11 && input.find(' ') == std::string::npos && input.find('/') == std::string::npos)) {
+        input.find("youtube.com/shorts/") != std::string::npos) {
         return UrlType::SingleVideo;
     }
 
-    // Fallback: If it's a URL, treat as single video unless confirmed otherwise
+    // Any other list= without watch?v= is a playlist
+    if (input.find("list=") != std::string::npos) {
+        return UrlType::Playlist;
+    }
+
+    // 11-character video ID
+    if (input.length() == 11 && input.find(' ') == std::string::npos && input.find('/') == std::string::npos) {
+        return UrlType::SingleVideo;
+    }
+
+    // Fallback: If it starts with http, treat as single video
     if (input.find("http://") == 0 || input.find("https://") == 0) {
         return UrlType::SingleVideo;
     }
@@ -205,11 +275,12 @@ std::string YtResolver::execute_command(const std::string& cmd_line) const {
 }
 
 std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& url_or_id, bool fetch_stream_url) {
-    if (url_or_id.empty()) return std::nullopt;
+    std::string clean_url = sanitize_url(url_or_id);
+    if (clean_url.empty()) return std::nullopt;
 
     {
         std::lock_guard<std::mutex> lock(m_cache_mutex);
-        auto it = m_metadata_cache.find(url_or_id);
+        auto it = m_metadata_cache.find(clean_url);
         if (it != m_metadata_cache.end()) {
             if (!fetch_stream_url || it->second.is_resolved) {
                 return it->second;
@@ -229,7 +300,7 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
         args.push_back("bestaudio[ext=opus]/bestaudio[ext=m4a]/bestaudio");
     }
 
-    args.push_back(url_or_id);
+    args.push_back(clean_url);
 
     std::string cmd = build_command_line(args);
     std::string raw_json = execute_command(cmd);
@@ -245,7 +316,7 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
         track.title = j.value("title", "Unknown Title");
         track.uploader = j.value("uploader", j.value("channel", "Unknown Artist"));
         track.duration_seconds = j.value("duration", 0);
-        track.original_url = url_or_id;
+        track.original_url = clean_url;
 
         if (fetch_stream_url && j.contains("url") && j["url"].is_string()) {
             track.stream_url = j["url"].get<std::string>();
@@ -255,10 +326,10 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
         std::lock_guard<std::mutex> lock(m_cache_mutex);
         if (track.is_resolved) {
             m_stream_url_cache[track.id] = track.stream_url;
-            m_stream_url_cache[url_or_id] = track.stream_url;
+            m_stream_url_cache[clean_url] = track.stream_url;
         }
         m_metadata_cache[track.id] = track;
-        m_metadata_cache[url_or_id] = track;
+        m_metadata_cache[clean_url] = track;
 
         return track;
     } catch (const std::exception& e) {
@@ -268,11 +339,12 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
 }
 
 std::optional<std::string> YtResolver::resolve_stream_url(const std::string& video_id_or_url) {
-    if (video_id_or_url.empty()) return std::nullopt;
+    std::string clean_url = sanitize_url(video_id_or_url);
+    if (clean_url.empty()) return std::nullopt;
 
     {
         std::lock_guard<std::mutex> lock(m_cache_mutex);
-        auto it = m_stream_url_cache.find(video_id_or_url);
+        auto it = m_stream_url_cache.find(clean_url);
         if (it != m_stream_url_cache.end()) {
             return it->second;
         }
@@ -283,7 +355,7 @@ std::optional<std::string> YtResolver::resolve_stream_url(const std::string& vid
         "-g",
         "--no-playlist",
         "--no-warnings",
-        video_id_or_url
+        clean_url
     };
 
     std::string cmd = build_command_line(args);
@@ -291,7 +363,7 @@ std::optional<std::string> YtResolver::resolve_stream_url(const std::string& vid
 
     if (output.find("http://") == 0 || output.find("https://") == 0) {
         std::lock_guard<std::mutex> lock(m_cache_mutex);
-        m_stream_url_cache[video_id_or_url] = output;
+        m_stream_url_cache[clean_url] = output;
         return output;
     }
 
@@ -299,14 +371,15 @@ std::optional<std::string> YtResolver::resolve_stream_url(const std::string& vid
 }
 
 std::optional<PlaylistMetadata> YtResolver::resolve_playlist(const std::string& playlist_url) {
-    if (playlist_url.empty()) return std::nullopt;
+    std::string clean_url = sanitize_url(playlist_url);
+    if (clean_url.empty()) return std::nullopt;
 
     std::vector<std::string> args = {
         "--flat-playlist",
         "-J",
         "--skip-download",
         "--no-warnings",
-        playlist_url
+        clean_url
     };
 
     std::string cmd = build_command_line(args);

@@ -43,6 +43,9 @@ public:
     // Format duration helper (e.g. 215 seconds -> "3:35" or "03:35")
     static std::string format_duration(int total_seconds);
 
+    // Sanitize and clean URL (removes Ctrl+V artifacts, spaces, extracts valid URL)
+    static std::string sanitize_url(const std::string& input);
+
     // Synchronous resolution methods
     std::optional<TrackMetadata> resolve_track_info(const std::string& url_or_id, bool fetch_stream_url = true);
     std::optional<std::string> resolve_stream_url(const std::string& video_id_or_url);

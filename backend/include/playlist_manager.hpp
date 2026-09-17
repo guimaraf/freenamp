@@ -27,6 +27,7 @@ public:
     bool remove_track(size_t index);
     void clear();
     void move_track(size_t from_idx, size_t to_idx);
+    void set_track_stream_url(size_t index, const std::string& stream_url);
 
     // Getters
     size_t size() const;

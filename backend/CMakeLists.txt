@@ -46,6 +46,14 @@ target_link_libraries(test_audio_playlist PRIVATE
     freenamp_backend
 )
 
+add_executable(test_url_flow
+    tests/test_url_flow.cpp
+)
+
+target_link_libraries(test_url_flow PRIVATE
+    freenamp_backend
+)
+
 # Copy dlls to test target output
 add_custom_command(TARGET test_audio_playlist POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

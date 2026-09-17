@@ -1,4 +1,5 @@
 #include "views/input_modal.hpp"
+#include "yt_resolver.hpp"
 #include <iostream>
 
 namespace freenamp::frontend {
@@ -15,7 +16,7 @@ void InputModal::open() {
         if (clip) {
             std::string s(clip);
             if (s.find("youtube.com") != std::string::npos || s.find("youtu.be") != std::string::npos) {
-                m_input_text = s;
+                m_input_text = backend::YtResolver::sanitize_url(s);
             }
             SDL_free(clip);
         }
@@ -84,8 +85,9 @@ bool InputModal::handle_mouse_down(int mx, int my, backend::CoreController& core
     // OK button
     Rect ok_r = { bx + m_btn_ok.x, by + m_btn_ok.y, m_btn_ok.w, m_btn_ok.h };
     if (ok_r.contains(mx, my)) {
-        if (!m_input_text.empty()) {
-            core.add_url(m_input_text, false);
+        std::string clean = backend::YtResolver::sanitize_url(m_input_text);
+        if (!clean.empty()) {
+            core.add_url(clean, false);
             m_input_text.clear();
         }
         close();
@@ -104,15 +106,21 @@ bool InputModal::handle_mouse_down(int mx, int my, backend::CoreController& core
 
 void InputModal::handle_text_input(const char* text) {
     if (!m_is_open || !text) return;
-    m_input_text += text;
+    if (SDL_GetModState() & KMOD_CTRL) return; // Prevent control codes like \x16 from Ctrl+V
+    for (const char* p = text; *p; ++p) {
+        if (static_cast<unsigned char>(*p) >= 32 && static_cast<unsigned char>(*p) <= 126) {
+            m_input_text += *p;
+        }
+    }
 }
 
 void InputModal::handle_key_down(SDL_Keycode key, backend::CoreController& core) {
     if (!m_is_open) return;
 
     if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
-        if (!m_input_text.empty()) {
-            core.add_url(m_input_text, false);
+        std::string clean = backend::YtResolver::sanitize_url(m_input_text);
+        if (!clean.empty()) {
+            core.add_url(clean, false);
             m_input_text.clear();
         }
         close();
@@ -126,7 +134,10 @@ void InputModal::handle_key_down(SDL_Keycode key, backend::CoreController& core)
         if (SDL_HasClipboardText()) {
             char* clip = SDL_GetClipboardText();
             if (clip) {
-                m_input_text += clip;
+                std::string clean = backend::YtResolver::sanitize_url(clip);
+                if (!clean.empty()) {
+                    m_input_text = clean;
+                }
                 SDL_free(clip);
             }
         }

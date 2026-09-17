@@ -71,6 +71,14 @@ void PlaylistManager::move_track(size_t from_idx, size_t to_idx) {
     rebuild_shuffle_indices();
 }
 
+void PlaylistManager::set_track_stream_url(size_t index, const std::string& stream_url) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (index < m_tracks.size()) {
+        m_tracks[index].stream_url = stream_url;
+        m_tracks[index].is_resolved = !stream_url.empty();
+    }
+}
+
 size_t PlaylistManager::size() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_tracks.size();
