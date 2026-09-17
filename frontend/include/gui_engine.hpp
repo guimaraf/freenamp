@@ -21,6 +21,9 @@ public:
     void run(backend::CoreController& core);
     void shutdown();
 
+    void save_window_layout();
+    void load_window_layout();
+
 private:
     int m_width = 680;
     int m_height = 500;

@@ -3,10 +3,12 @@
 #include "equalizer_dsp.hpp"
 #include "core_controller.hpp"
 #include <iostream>
+#include <fstream>
 #include <cassert>
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 
 using namespace freenamp::backend;
 
@@ -140,6 +142,52 @@ void test_playlist_expired_url_persistence() {
     std::cout << "  -> Persistencia com URLs expiradas validada com sucesso!\n\n";
 }
 
+void test_settings_and_windows_layout_persistence() {
+    std::cout << "[TEST] 2.2 Testando coexistencia e preservacao das janelas internas no settings.json...\n";
+    std::filesystem::create_directories("cache");
+
+    // 1. Write mock window layout into settings.json
+    nlohmann::json init_settings;
+    init_settings["windows"]["main"]["x"] = 45;
+    init_settings["windows"]["main"]["y"] = 60;
+    init_settings["windows"]["main"]["w"] = 275;
+    init_settings["windows"]["main"]["h"] = 116;
+    init_settings["windows"]["playlist"]["x"] = 330;
+    init_settings["windows"]["playlist"]["y"] = 60;
+    init_settings["windows"]["playlist"]["w"] = 400;
+    init_settings["windows"]["playlist"]["h"] = 350;
+    init_settings["windows"]["playlist"]["visible"] = true;
+
+    {
+        std::ofstream ofs("cache/settings.json");
+        ofs << init_settings.dump(2);
+    }
+
+    // 2. Instantiate CoreController, change volume/pan/repeat, and call save_session()
+    {
+        CoreController core("compile/bin/yt-dlp.exe");
+        core.set_volume(72.5);
+        core.set_pan(0.25);
+        core.save_session();
+    }
+
+    // 3. Inspect settings.json and confirm BOTH volume AND windows were preserved
+    {
+        std::ifstream ifs("cache/settings.json");
+        assert(ifs.is_open());
+        nlohmann::json s;
+        ifs >> s;
+        assert(s.contains("volume") && s["volume"].get<double>() == 72.5);
+        assert(s.contains("pan") && s["pan"].get<double>() == 0.25);
+        assert(s.contains("windows") && s["windows"].is_object());
+        assert(s["windows"]["main"]["x"] == 45);
+        assert(s["windows"]["playlist"]["w"] == 400);
+        assert(s["windows"]["playlist"]["h"] == 350);
+    }
+
+    std::cout << "  -> Coexistencia e preservacao das janelas internas no settings.json validada com sucesso!\n\n";
+}
+
 void test_audio_engine_lifecycle() {
     std::cout << "[TEST] 3. Testando AudioEngine (Inicializacao headless, Volume, Pan e Espectro)...\n";
 
@@ -221,6 +269,7 @@ int main() {
     test_equalizer_dsp();
     test_playlist_manager();
     test_playlist_expired_url_persistence();
+    test_settings_and_windows_layout_persistence();
     test_audio_engine_lifecycle();
     test_live_headless_playback();
 

@@ -1,5 +1,8 @@
 #include "gui_engine.hpp"
 #include <iostream>
+#include <fstream>
+#include <filesystem>
+#include <nlohmann/json.hpp>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -23,13 +26,26 @@ bool GuiEngine::init() {
         return false;
     }
 
+    // Restore saved application window size if available
+    try {
+        std::ifstream ifs("cache/settings.json");
+        if (ifs.is_open()) {
+            nlohmann::json settings;
+            ifs >> settings;
+            if (settings.contains("app_window") && settings["app_window"].is_object()) {
+                m_width = settings["app_window"].value("w", m_width);
+                m_height = settings["app_window"].value("h", m_height);
+            }
+        }
+    } catch (...) {}
+
     m_window = SDL_CreateWindow(
         "Freenamp - YouTube Retro Audio Player",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         m_width,
         m_height,
-        SDL_WINDOW_SHOWN
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
     );
 
     if (!m_window) {
@@ -101,6 +117,15 @@ void GuiEngine::process_events(backend::CoreController& core) {
             return;
         }
 
+        if (event.type == SDL_WINDOWEVENT) {
+            if (event.window.event == SDL_WINDOWEVENT_RESIZED || event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                m_width = event.window.data1;
+                m_height = event.window.data2;
+                save_window_layout();
+            }
+            continue;
+        }
+
         // Text input for modal dialog
         if (m_input_modal.is_open()) {
             if (event.type == SDL_TEXTINPUT) {
@@ -129,18 +154,26 @@ void GuiEngine::process_events(backend::CoreController& core) {
 
             if (m_main_view.handle_mouse_down(mx, my, core, request_open_url, toggle_eq, toggle_pl)) {
                 if (request_open_url) m_input_modal.open();
-                if (toggle_eq) m_eq_view.toggle_visible();
-                if (toggle_pl) m_playlist_view.toggle_visible();
+                if (toggle_eq) {
+                    m_eq_view.toggle_visible();
+                    save_window_layout();
+                }
+                if (toggle_pl) {
+                    m_playlist_view.toggle_visible();
+                    save_window_layout();
+                }
                 continue;
             }
 
             bool eq_close = false;
             if (m_eq_view.is_visible() && m_eq_view.handle_mouse_down(mx, my, core, eq_close)) {
+                if (eq_close) save_window_layout();
                 continue;
             }
 
             bool info_close = false;
             if (m_info_view.is_visible() && m_info_view.handle_mouse_down(mx, my, core, info_close)) {
+                if (info_close) save_window_layout();
                 continue;
             }
 
@@ -148,6 +181,7 @@ void GuiEngine::process_events(backend::CoreController& core) {
             bool pl_close = false;
             if (m_playlist_view.is_visible() && m_playlist_view.handle_mouse_down(mx, my, core, pl_add, pl_close)) {
                 if (pl_add) m_input_modal.open();
+                if (pl_close) save_window_layout();
                 continue;
             }
         }
@@ -156,6 +190,12 @@ void GuiEngine::process_events(backend::CoreController& core) {
         if (event.type == SDL_MOUSEBUTTONUP) {
             int mx = event.button.x;
             int my = event.button.y;
+
+            bool was_dragging_or_resizing = m_main_view.is_dragging_window() ||
+                                            m_info_view.is_dragging_window() ||
+                                            m_eq_view.is_dragging_window() ||
+                                            m_playlist_view.is_dragging_window() ||
+                                            m_playlist_view.is_resizing();
 
             // Apply magnetic snapping when dragging finishes
             if (m_main_view.is_dragging_window()) {
@@ -199,6 +239,10 @@ void GuiEngine::process_events(backend::CoreController& core) {
             m_info_view.handle_mouse_up(mx, my);
             m_eq_view.handle_mouse_up(mx, my);
             m_playlist_view.handle_mouse_up(mx, my);
+
+            if (was_dragging_or_resizing) {
+                save_window_layout();
+            }
         }
 
         // Mouse Move
@@ -305,6 +349,8 @@ void GuiEngine::render(backend::CoreController& core) {
 
 void GuiEngine::run(backend::CoreController& core) {
     core.load_session();
+    load_window_layout();
+
     int cur_idx = core.get_playlist().get_current_index();
     if (cur_idx >= 0) {
         m_playlist_view.set_selected_index(cur_idx);
@@ -329,6 +375,140 @@ void GuiEngine::run(backend::CoreController& core) {
     }
 
     core.save_session();
+    save_window_layout();
+}
+
+void GuiEngine::save_window_layout() {
+    try {
+        std::filesystem::create_directories("cache");
+        nlohmann::json settings;
+        {
+            std::ifstream ifs("cache/settings.json");
+            if (ifs.is_open()) {
+                try {
+                    ifs >> settings;
+                } catch (...) {}
+            }
+        }
+
+        // Save application window dimensions
+        settings["app_window"]["w"] = m_width;
+        settings["app_window"]["h"] = m_height;
+
+        // Save internal windows positions, sizes and visibilities
+        Rect mb = m_main_view.get_bounds();
+        settings["windows"]["main"]["x"] = mb.x;
+        settings["windows"]["main"]["y"] = mb.y;
+        settings["windows"]["main"]["w"] = mb.w;
+        settings["windows"]["main"]["h"] = mb.h;
+
+        Rect ib = m_info_view.get_bounds();
+        settings["windows"]["info"]["x"] = ib.x;
+        settings["windows"]["info"]["y"] = ib.y;
+        settings["windows"]["info"]["w"] = ib.w;
+        settings["windows"]["info"]["h"] = ib.h;
+        settings["windows"]["info"]["visible"] = m_info_view.is_visible();
+
+        Rect eb = m_eq_view.get_bounds();
+        settings["windows"]["eq"]["x"] = eb.x;
+        settings["windows"]["eq"]["y"] = eb.y;
+        settings["windows"]["eq"]["w"] = eb.w;
+        settings["windows"]["eq"]["h"] = eb.h;
+        settings["windows"]["eq"]["visible"] = m_eq_view.is_visible();
+
+        Rect pb = m_playlist_view.get_bounds();
+        settings["windows"]["playlist"]["x"] = pb.x;
+        settings["windows"]["playlist"]["y"] = pb.y;
+        settings["windows"]["playlist"]["w"] = pb.w;
+        settings["windows"]["playlist"]["h"] = pb.h;
+        settings["windows"]["playlist"]["visible"] = m_playlist_view.is_visible();
+
+        std::ofstream ofs("cache/settings.json");
+        if (ofs.is_open()) {
+            ofs << settings.dump(2);
+        }
+    } catch (...) {}
+}
+
+void GuiEngine::load_window_layout() {
+    try {
+        std::ifstream ifs("cache/settings.json");
+        if (!ifs.is_open()) return;
+
+        nlohmann::json settings;
+        ifs >> settings;
+
+        if (settings.contains("app_window") && settings["app_window"].is_object()) {
+            const auto& aw = settings["app_window"];
+            int saved_w = aw.value("w", m_width);
+            int saved_h = aw.value("h", m_height);
+            if (saved_w >= 400 && saved_h >= 300 && m_window) {
+                m_width = saved_w;
+                m_height = saved_h;
+                SDL_SetWindowSize(m_window, m_width, m_height);
+            }
+        }
+
+        if (!settings.contains("windows") || !settings["windows"].is_object()) {
+            return;
+        }
+
+        const auto& wins = settings["windows"];
+
+        auto clamp_pos = [this](int x, int y, int w, int h) -> std::pair<int, int> {
+            int cx = std::clamp(x, 0, std::max(0, m_width - w));
+            int cy = std::clamp(y, 0, std::max(0, m_height - h));
+            return { cx, cy };
+        };
+
+        if (wins.contains("main") && wins["main"].is_object()) {
+            const auto& m = wins["main"];
+            int x = m.value("x", m_main_view.get_bounds().x);
+            int y = m.value("y", m_main_view.get_bounds().y);
+            auto [cx, cy] = clamp_pos(x, y, m_main_view.get_bounds().w, m_main_view.get_bounds().h);
+            m_main_view.set_position(cx, cy);
+        }
+
+        if (wins.contains("info") && wins["info"].is_object()) {
+            const auto& i = wins["info"];
+            int x = i.value("x", m_info_view.get_bounds().x);
+            int y = i.value("y", m_info_view.get_bounds().y);
+            auto [cx, cy] = clamp_pos(x, y, m_info_view.get_bounds().w, m_info_view.get_bounds().h);
+            m_info_view.set_position(cx, cy);
+            if (i.contains("visible") && i["visible"].is_boolean()) {
+                m_info_view.set_visible(i["visible"].get<bool>());
+            }
+        }
+
+        if (wins.contains("eq") && wins["eq"].is_object()) {
+            const auto& e = wins["eq"];
+            int x = e.value("x", m_eq_view.get_bounds().x);
+            int y = e.value("y", m_eq_view.get_bounds().y);
+            auto [cx, cy] = clamp_pos(x, y, m_eq_view.get_bounds().w, m_eq_view.get_bounds().h);
+            m_eq_view.set_position(cx, cy);
+            if (e.contains("visible") && e["visible"].is_boolean()) {
+                m_eq_view.set_visible(e["visible"].get<bool>());
+            }
+        }
+
+        if (wins.contains("playlist") && wins["playlist"].is_object()) {
+            const auto& p = wins["playlist"];
+            int w = p.value("w", m_playlist_view.get_bounds().w);
+            int h = p.value("h", m_playlist_view.get_bounds().h);
+            w = std::clamp(w, 275, std::max(275, m_width));
+            h = std::clamp(h, 140, std::max(140, m_height));
+            m_playlist_view.set_size(w, h);
+
+            int x = p.value("x", m_playlist_view.get_bounds().x);
+            int y = p.value("y", m_playlist_view.get_bounds().y);
+            auto [cx, cy] = clamp_pos(x, y, m_playlist_view.get_bounds().w, m_playlist_view.get_bounds().h);
+            m_playlist_view.set_position(cx, cy);
+
+            if (p.contains("visible") && p["visible"].is_boolean()) {
+                m_playlist_view.set_visible(p["visible"].get<bool>());
+            }
+        }
+    } catch (...) {}
 }
 
 } // namespace freenamp::frontend

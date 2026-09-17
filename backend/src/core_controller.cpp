@@ -24,6 +24,15 @@ void CoreController::save_session() {
         m_resolver.save_cache_to_file("cache/yt_cache.json");
 
         nlohmann::json settings;
+        {
+            std::ifstream ifs("cache/settings.json");
+            if (ifs.is_open()) {
+                try {
+                    ifs >> settings;
+                } catch (...) {}
+            }
+        }
+
         settings["volume"] = m_audio.get_volume();
         settings["pan"] = m_audio.get_pan();
         settings["shuffle"] = is_shuffle();

@@ -176,4 +176,27 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
 - **Testes Unitários Automatizados**:
   - Criados testes dedicados em `test_yt_resolver.cpp` e `test_audio_playlist.cpp` que validam o descarte de links expirados e a integridade da persistência de metadados.
 
+---
+
+## 13. Persistência de Posição, Tamanho e Visibilidade das Janelas Internas
+
+- **Preservação no Arquivo de Configurações (`cache/settings.json`)**:
+  - Implementados os métodos `GuiEngine::save_window_layout()` e `GuiEngine::load_window_layout()`.
+  - O arquivo `settings.json` agora armazena de forma hierárquica e unificada tanto as configurações de áudio quanto o estado de layout:
+    - **Janela da Aplicação (`app_window`)**: Dimensões `w` e `h` do container principal.
+    - **Janela Principal (`windows.main`)**: Posições `x`, `y` e dimensões fixas `w: 275`, `h: 116`.
+    - **Janela de Informações (`windows.info`)**: Posições `x`, `y`, dimensões `w: 275`, `h: 70` e estado de exibição `visible`.
+    - **Janela de Equalizador (`windows.eq`)**: Posições `x`, `y`, dimensões `w: 275`, `h: 116` e estado de exibição `visible`.
+    - **Janela de Playlist (`windows.playlist`)**: Posições `x`, `y`, dimensões dinâmicas redimensionáveis `w`, `h` e estado de exibição `visible`.
+- **Salvamento Imediato e Não Destrutivo**:
+  - O layout é salvo automaticamente sempre que o usuário solta o mouse após arrastar ou redimensionar (`SDL_MOUSEBUTTONUP`), quando fecha ou reabre qualquer janela interna via botões de título/transporte, e no fechamento da aplicação.
+  - Atualizado `CoreController::save_session()` para carregar as chaves preexistentes de `settings.json` antes de gravar, garantindo que o backend de áudio nunca apague os nós de layout da interface gráfica.
+- **Validação de Limites (Clamping de Segurança)**:
+  - Ao carregar coordenadas salvas, `load_window_layout()` aplica clamping defensivo para assegurar que nenhuma janela apareça fora da área visível do monitor ou do canvas do player.
+  - Dimensões mínimas são garantidas (mínimo de 275x140 para a playlist).
+- **Janela Externa Redimensionável (`SDL_WINDOW_RESIZABLE`)**:
+  - Habilitada a flag `SDL_WINDOW_RESIZABLE` na janela SDL2 principal com tratamento de `SDL_WINDOWEVENT_RESIZED`, permitindo expandir o espaço de trabalho e organizar as janelas lado a lado ou empilhadas sem cortes.
+- **Teste Automatizado de Coexistência**:
+  - Adicionado teste `test_settings_and_windows_layout_persistence` na suíte `test_audio_playlist.cpp`, validando que tanto os parâmetros de áudio (`volume`, `pan`) quanto os nós de geometria das janelas persistem e coexistem sem sobrescrita mútua.
+
 
