@@ -17,7 +17,7 @@ public:
 
     bool handle_mouse_down(int mx, int my, backend::CoreController& core, bool& open_url_dialog, bool& close_requested);
     void handle_mouse_up(int mx, int my);
-    void handle_mouse_move(int mx, int my);
+    void handle_mouse_move(int mx, int my, int canvas_w = 0, int canvas_h = 0);
     void handle_mouse_wheel(int wheel_y);
 
     Rect get_bounds() const { return m_bounds; }

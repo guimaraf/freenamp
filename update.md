@@ -199,4 +199,23 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
 - **Teste Automatizado de Coexistência**:
   - Adicionado teste `test_settings_and_windows_layout_persistence` na suíte `test_audio_playlist.cpp`, validando que tanto os parâmetros de áudio (`volume`, `pan`) quanto os nós de geometria das janelas persistem e coexistem sem sobrescrita mútua.
 
+---
+
+## 14. Limites Rígidos de Movimentação, Escalonamento e Redimensionamento da Janela Principal
+
+- **Tamanho Fixo da Janela Principal do Player**:
+  - A janela principal (`MainView`) permanece rigorosamente com seu tamanho clássico de reprodução fixo em `275 x 116` px, preservando a identidade visual retrô.
+- **Limites de Movimentação das Janelas Internas**:
+  - `MainView`, `InfoView`, `EqView` e `PlaylistView` agora possuem delimitação rígida de movimentação (`0 <= x <= canvas_w - w` e `0 <= y <= canvas_h - h`).
+  - Durante o arrasto individual, nenhuma janela pode ser arrastada para fora do canvas visível.
+  - Ao arrastar a `MainView` com janelas acopladas (docked), o cálculo de caixa envolvente (bounding box) do cluster garante que nenhuma janela filha seja empurrada para fora dos limites da janela da aplicação.
+  - No `WindowDock::snap`, após o cálculo de atração magnética, é imposto clamping final para impedir que o snap ultrapasse as bordas da tela.
+- **Limites de Escalonamento da Playlist**:
+  - A `PlaylistView` possui limites mínimos de `275 x 140` px e limites máximos dinâmicos baseados no espaço restante da janela (`canvas_w - x` e `canvas_h - y`), evitando que o redimensionamento ultrapasse as bordas do aplicativo.
+- **Limites Mínimo e Máximo da Janela da Aplicação (SDL)**:
+  - Definidos limites estritos através de `SDL_SetWindowMinimumSize` e `SDL_SetWindowMaximumSize`:
+    - **Tamanho Mínimo**: `680 x 500` px (espaço canônico necessário para todos os módulos abertos confortavelmente).
+    - **Tamanho Máximo**: `1024 x 720` px (impede expansão excessiva e vazia em monitores de alta resolução).
+  - Em eventos de redimensionamento (`SDL_WINDOWEVENT_RESIZED`), todas as janelas internas têm suas coordenadas e tamanhos re-validados e ajustados automaticamente para dentro dos novos limites.
+
 

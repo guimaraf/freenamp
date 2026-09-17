@@ -16,7 +16,7 @@ public:
 
     bool handle_mouse_down(int mx, int my, backend::CoreController& core, bool& close_requested);
     void handle_mouse_up(int mx, int my);
-    void handle_mouse_move(int mx, int my, backend::CoreController& core);
+    void handle_mouse_move(int mx, int my, backend::CoreController& core, int canvas_w = 0, int canvas_h = 0);
 
     Rect get_bounds() const { return m_bounds; }
     void set_position(int x, int y) { m_bounds.x = x; m_bounds.y = y; }

@@ -346,10 +346,14 @@ void PlaylistView::handle_mouse_up(int /*mx*/, int /*my*/) {
     m_dragging_scrollbar = false;
 }
 
-void PlaylistView::handle_mouse_move(int mx, int my) {
+void PlaylistView::handle_mouse_move(int mx, int my, int canvas_w, int canvas_h) {
     if (m_is_resizing) {
         int nw = m_resize_start_w + (mx - m_resize_start_mx);
         int nh = m_resize_start_h + (my - m_resize_start_my);
+        int max_w = (canvas_w > 0) ? (canvas_w - m_bounds.x) : 800;
+        int max_h = (canvas_h > 0) ? (canvas_h - m_bounds.y) : 600;
+        nw = std::clamp(nw, 275, std::max(275, max_w));
+        nh = std::clamp(nh, 140, std::max(140, max_h));
         set_size(nw, nh);
     } else if (m_dragging_scrollbar) {
         Rect sb_r = { m_bounds.x + m_scrollbar.x, m_bounds.y + m_scrollbar.y, m_scrollbar.w, m_scrollbar.h };
@@ -358,8 +362,14 @@ void PlaylistView::handle_mouse_move(int mx, int my) {
         float clamped_ratio = std::clamp(click_ratio, 0.0f, 1.0f);
         m_scroll_offset = std::clamp(static_cast<int>(clamped_ratio * m_total_tracks), 0, std::max(0, m_total_tracks - visible));
     } else if (m_dragging_window) {
-        m_bounds.x = mx - m_drag_off_x;
-        m_bounds.y = my - m_drag_off_y;
+        int nx = mx - m_drag_off_x;
+        int ny = my - m_drag_off_y;
+        if (canvas_w > 0 && canvas_h > 0) {
+            nx = std::clamp(nx, 0, std::max(0, canvas_w - m_bounds.w));
+            ny = std::clamp(ny, 0, std::max(0, canvas_h - m_bounds.h));
+        }
+        m_bounds.x = nx;
+        m_bounds.y = ny;
     }
 }
 

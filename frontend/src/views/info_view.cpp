@@ -91,10 +91,16 @@ void InfoView::handle_mouse_up(int /*mx*/, int /*my*/) {
     m_dragging_window = false;
 }
 
-void InfoView::handle_mouse_move(int mx, int my) {
+void InfoView::handle_mouse_move(int mx, int my, int canvas_w, int canvas_h) {
     if (m_dragging_window) {
-        m_bounds.x = mx - m_drag_off_x;
-        m_bounds.y = my - m_drag_off_y;
+        int nx = mx - m_drag_off_x;
+        int ny = my - m_drag_off_y;
+        if (canvas_w > 0 && canvas_h > 0) {
+            nx = std::clamp(nx, 0, std::max(0, canvas_w - m_bounds.w));
+            ny = std::clamp(ny, 0, std::max(0, canvas_h - m_bounds.h));
+        }
+        m_bounds.x = nx;
+        m_bounds.y = ny;
     }
 }
 

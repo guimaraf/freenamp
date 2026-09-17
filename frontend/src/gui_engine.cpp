@@ -39,6 +39,14 @@ bool GuiEngine::init() {
         }
     } catch (...) {}
 
+    const int MIN_WIN_W = 680;
+    const int MIN_WIN_H = 500;
+    const int MAX_WIN_W = 1024;
+    const int MAX_WIN_H = 720;
+
+    m_width = std::clamp(m_width, MIN_WIN_W, MAX_WIN_W);
+    m_height = std::clamp(m_height, MIN_WIN_H, MAX_WIN_H);
+
     m_window = SDL_CreateWindow(
         "Freenamp - YouTube Retro Audio Player",
         SDL_WINDOWPOS_CENTERED,
@@ -52,6 +60,9 @@ bool GuiEngine::init() {
         std::cerr << "[GuiEngine] Falha ao criar janela SDL2: " << SDL_GetError() << "\n";
         return false;
     }
+
+    SDL_SetWindowMinimumSize(m_window, MIN_WIN_W, MIN_WIN_H);
+    SDL_SetWindowMaximumSize(m_window, MAX_WIN_W, MAX_WIN_H);
 
 #ifdef _WIN32
     // Apply high quality 256x256 / 32x32 / 16x16 icon to window and taskbar
@@ -119,8 +130,28 @@ void GuiEngine::process_events(backend::CoreController& core) {
 
         if (event.type == SDL_WINDOWEVENT) {
             if (event.window.event == SDL_WINDOWEVENT_RESIZED || event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                m_width = event.window.data1;
-                m_height = event.window.data2;
+                m_width = std::clamp(event.window.data1, 680, 1024);
+                m_height = std::clamp(event.window.data2, 500, 720);
+
+                // Re-clamp all internal windows inside the new dimensions
+                auto clamp_view = [this](auto& view) {
+                    Rect b = view.get_bounds();
+                    int nx = std::clamp(b.x, 0, std::max(0, m_width - b.w));
+                    int ny = std::clamp(b.y, 0, std::max(0, m_height - b.h));
+                    view.set_position(nx, ny);
+                };
+                clamp_view(m_main_view);
+                clamp_view(m_info_view);
+                clamp_view(m_eq_view);
+                clamp_view(m_playlist_view);
+
+                Rect pb = m_playlist_view.get_bounds();
+                int max_pw = std::max(275, m_width - pb.x);
+                int max_ph = std::max(140, m_height - pb.y);
+                if (pb.w > max_pw || pb.h > max_ph) {
+                    m_playlist_view.set_size(std::min(pb.w, max_pw), std::min(pb.h, max_ph));
+                }
+
                 save_window_layout();
             }
             continue;
@@ -253,33 +284,72 @@ void GuiEngine::process_events(backend::CoreController& core) {
             // Check if dragging Main View moves docked child windows together
             if (m_main_view.is_dragging_window()) {
                 Rect old_mb = m_main_view.get_bounds();
-                m_main_view.handle_mouse_move(mx, my, core);
-                Rect new_mb = m_main_view.get_bounds();
-                int dx = new_mb.x - old_mb.x;
-                int dy = new_mb.y - old_mb.y;
 
-                // If Info View is docked to Main, move it too
-                if (m_info_view.is_visible() && WindowDock::are_docked(old_mb, m_info_view.get_bounds())) {
+                int min_dock_dx = 0;
+                int max_dock_dx = old_mb.w;
+                int min_dock_dy = 0;
+                int max_dock_dy = old_mb.h;
+
+                bool info_docked = m_info_view.is_visible() && WindowDock::are_docked(old_mb, m_info_view.get_bounds());
+                if (info_docked) {
+                    Rect ib = m_info_view.get_bounds();
+                    min_dock_dx = std::min(min_dock_dx, ib.x - old_mb.x);
+                    max_dock_dx = std::max(max_dock_dx, (ib.x + ib.w) - old_mb.x);
+                    min_dock_dy = std::min(min_dock_dy, ib.y - old_mb.y);
+                    max_dock_dy = std::max(max_dock_dy, (ib.y + ib.h) - old_mb.y);
+                }
+
+                bool eq_docked = m_eq_view.is_visible() && WindowDock::are_docked(old_mb, m_eq_view.get_bounds());
+                if (eq_docked) {
+                    Rect eb = m_eq_view.get_bounds();
+                    min_dock_dx = std::min(min_dock_dx, eb.x - old_mb.x);
+                    max_dock_dx = std::max(max_dock_dx, (eb.x + eb.w) - old_mb.x);
+                    min_dock_dy = std::min(min_dock_dy, eb.y - old_mb.y);
+                    max_dock_dy = std::max(max_dock_dy, (eb.y + eb.h) - old_mb.y);
+                }
+
+                bool pl_docked = m_playlist_view.is_visible() && WindowDock::are_docked(old_mb, m_playlist_view.get_bounds());
+                if (pl_docked) {
+                    Rect pb = m_playlist_view.get_bounds();
+                    min_dock_dx = std::min(min_dock_dx, pb.x - old_mb.x);
+                    max_dock_dx = std::max(max_dock_dx, (pb.x + pb.w) - old_mb.x);
+                    min_dock_dy = std::min(min_dock_dy, pb.y - old_mb.y);
+                    max_dock_dy = std::max(max_dock_dy, (pb.y + pb.h) - old_mb.y);
+                }
+
+                int desired_x = mx - m_main_view.get_drag_offset_x();
+                int desired_y = my - m_main_view.get_drag_offset_y();
+
+                int min_allowed_x = -min_dock_dx;
+                int max_allowed_x = m_width - max_dock_dx;
+                int min_allowed_y = -min_dock_dy;
+                int max_allowed_y = m_height - max_dock_dy;
+
+                int clamped_x = (min_allowed_x <= max_allowed_x) ? std::clamp(desired_x, min_allowed_x, max_allowed_x) : 0;
+                int clamped_y = (min_allowed_y <= max_allowed_y) ? std::clamp(desired_y, min_allowed_y, max_allowed_y) : 0;
+
+                int dx = clamped_x - old_mb.x;
+                int dy = clamped_y - old_mb.y;
+
+                m_main_view.set_position(clamped_x, clamped_y);
+
+                if (info_docked) {
                     Rect ib = m_info_view.get_bounds();
                     m_info_view.set_position(ib.x + dx, ib.y + dy);
                 }
-
-                // If Equalizer is docked to Main, move it too
-                if (m_eq_view.is_visible() && WindowDock::are_docked(old_mb, m_eq_view.get_bounds())) {
+                if (eq_docked) {
                     Rect eb = m_eq_view.get_bounds();
                     m_eq_view.set_position(eb.x + dx, eb.y + dy);
                 }
-
-                // If Playlist is docked to Main, move it too
-                if (m_playlist_view.is_visible() && WindowDock::are_docked(old_mb, m_playlist_view.get_bounds())) {
+                if (pl_docked) {
                     Rect pb = m_playlist_view.get_bounds();
                     m_playlist_view.set_position(pb.x + dx, pb.y + dy);
                 }
             } else {
-                m_main_view.handle_mouse_move(mx, my, core);
-                m_info_view.handle_mouse_move(mx, my);
-                m_eq_view.handle_mouse_move(mx, my, core);
-                m_playlist_view.handle_mouse_move(mx, my);
+                m_main_view.handle_mouse_move(mx, my, core, m_width, m_height);
+                m_info_view.handle_mouse_move(mx, my, m_width, m_height);
+                m_eq_view.handle_mouse_move(mx, my, core, m_width, m_height);
+                m_playlist_view.handle_mouse_move(mx, my, m_width, m_height);
             }
         }
 
@@ -442,9 +512,9 @@ void GuiEngine::load_window_layout() {
             const auto& aw = settings["app_window"];
             int saved_w = aw.value("w", m_width);
             int saved_h = aw.value("h", m_height);
-            if (saved_w >= 400 && saved_h >= 300 && m_window) {
-                m_width = saved_w;
-                m_height = saved_h;
+            m_width = std::clamp(saved_w, 680, 1024);
+            m_height = std::clamp(saved_h, 500, 720);
+            if (m_window) {
                 SDL_SetWindowSize(m_window, m_width, m_height);
             }
         }

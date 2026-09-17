@@ -74,6 +74,14 @@ void WindowDock::snap(Rect& target, const std::vector<Rect>& others, int canvas_
             }
         }
     }
+
+    // 3. Enforce strict canvas boundary clamping
+    if (canvas_w > 0) {
+        target.x = std::clamp(target.x, 0, std::max(0, canvas_w - target.w));
+    }
+    if (canvas_h > 0) {
+        target.y = std::clamp(target.y, 0, std::max(0, canvas_h - target.h));
+    }
 }
 
 bool WindowDock::are_docked(const Rect& a, const Rect& b) {
