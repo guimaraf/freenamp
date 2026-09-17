@@ -442,6 +442,46 @@ void YtResolver::clear_cache() {
     m_metadata_cache.clear();
 }
 
+void YtResolver::remove_from_cache(const std::string& id_or_url) {
+    if (id_or_url.empty()) return;
+    std::lock_guard<std::mutex> lock(m_cache_mutex);
+
+    std::string matched_id;
+    std::string matched_url;
+
+    auto it_meta = m_metadata_cache.find(id_or_url);
+    if (it_meta != m_metadata_cache.end()) {
+        matched_id = it_meta->second.id;
+        matched_url = it_meta->second.original_url;
+    }
+
+    for (auto it = m_metadata_cache.begin(); it != m_metadata_cache.end(); ) {
+        bool match = (it->first == id_or_url) ||
+                     (it->second.id == id_or_url) ||
+                     (!it->second.original_url.empty() && it->second.original_url == id_or_url) ||
+                     (!matched_id.empty() && (it->first == matched_id || it->second.id == matched_id)) ||
+                     (!matched_url.empty() && (it->first == matched_url || it->second.original_url == matched_url));
+        if (match) {
+            if (matched_id.empty()) matched_id = it->second.id;
+            if (matched_url.empty()) matched_url = it->second.original_url;
+            it = m_metadata_cache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    for (auto it = m_stream_url_cache.begin(); it != m_stream_url_cache.end(); ) {
+        bool match = (it->first == id_or_url) ||
+                     (!matched_id.empty() && it->first == matched_id) ||
+                     (!matched_url.empty() && it->first == matched_url);
+        if (match) {
+            it = m_stream_url_cache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 bool YtResolver::has_cached_stream_url(const std::string& id) const {
     std::lock_guard<std::mutex> lock(m_cache_mutex);
     return m_stream_url_cache.find(id) != m_stream_url_cache.end();

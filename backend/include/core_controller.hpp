@@ -50,7 +50,9 @@ public:
     double get_position();
     double get_duration();
     std::string get_current_title() const;
+    void set_current_title(const std::string& title) { m_current_title = title; }
     std::string get_status_text() const;
+    void set_status_text(const std::string& status) { m_status_message = status; }
     std::array<float, AudioEngine::SPECTRUM_BANDS> get_spectrum_bands();
     bool is_loading() const { return m_is_loading.load(); }
     int get_loading_progress() const { return m_loading_progress.load(); }

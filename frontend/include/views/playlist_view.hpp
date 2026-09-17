@@ -29,6 +29,8 @@ public:
     void toggle_visible() { m_visible = !m_visible; }
 
     int get_selected_index() const { return m_selected_index; }
+    void set_selected_index(int idx) { m_selected_index = idx; }
+    void ensure_visible(int index, int total_tracks = -1);
     void remove_selected(backend::CoreController& core);
 
     bool is_dragging_window() const { return m_dragging_window; }

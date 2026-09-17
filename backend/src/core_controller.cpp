@@ -28,6 +28,7 @@ void CoreController::save_session() {
         settings["pan"] = m_audio.get_pan();
         settings["shuffle"] = is_shuffle();
         settings["repeat"] = static_cast<int>(get_repeat());
+        settings["selected_index"] = m_playlist.get_current_index();
 
         std::ofstream ofs("cache/settings.json");
         if (ofs.is_open()) {
@@ -39,14 +40,7 @@ void CoreController::save_session() {
 void CoreController::load_session() {
     try {
         m_resolver.load_cache_from_file("cache/yt_cache.json");
-        if (m_playlist.load_from_file("cache/playlist.json")) {
-            auto tr = m_playlist.get_current_track();
-            if (tr.has_value()) {
-                m_current_title = tr->title;
-            }
-            m_status_message = "Pronto (" + std::to_string(m_playlist.size()) + " faixas)";
-            notify_event("playlist_updated");
-        }
+        bool pl_loaded = m_playlist.load_from_file("cache/playlist.json");
 
         std::ifstream ifs("cache/settings.json");
         if (ifs.is_open()) {
@@ -64,6 +58,27 @@ void CoreController::load_session() {
             if (settings.contains("repeat") && settings["repeat"].is_number_integer()) {
                 m_playlist.set_repeat(static_cast<RepeatMode>(settings["repeat"].get<int>()));
             }
+            if (settings.contains("selected_index") && settings["selected_index"].is_number_integer()) {
+                int idx = settings["selected_index"].get<int>();
+                if (idx >= 0 && idx < static_cast<int>(m_playlist.size())) {
+                    m_playlist.set_current_index(idx);
+                }
+            }
+        }
+
+        if (pl_loaded && !m_playlist.empty()) {
+            if (m_playlist.get_current_index() < 0) {
+                m_playlist.set_current_index(0);
+            }
+            auto tr = m_playlist.get_current_track();
+            if (tr.has_value()) {
+                m_current_title = tr->title;
+            }
+            m_status_message = "Pronto (" + std::to_string(m_playlist.size()) + " faixas)";
+            notify_event("playlist_updated");
+        } else {
+            m_current_title = "Freenamp Ready";
+            m_status_message = "Pronto";
         }
     } catch (...) {}
 }

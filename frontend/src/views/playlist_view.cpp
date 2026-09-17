@@ -191,6 +191,13 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
             } else {
                 // Single click -> SELECT
                 m_selected_index = clicked_track;
+                if (core.get_state() == backend::PlaybackState::Stopped) {
+                    core.get_playlist().set_current_index(clicked_track);
+                    auto tr = core.get_playlist().get_track(clicked_track);
+                    if (tr.has_value()) {
+                        core.set_current_title(tr->title);
+                    }
+                }
             }
 
             m_last_clicked_index = clicked_track;
@@ -227,7 +234,11 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
     // CLEAR button
     Rect clr_r = { bx + m_btn_clear.x, by + m_btn_clear.y, m_btn_clear.w, m_btn_clear.h };
     if (clr_r.contains(mx, my)) {
+        core.stop();
         core.get_playlist().clear();
+        core.get_resolver().clear_cache();
+        core.set_current_title("Freenamp Ready");
+        core.set_status_text("Pronto");
         m_selected_index = 0;
         m_scroll_offset = 0;
         core.save_session();
@@ -260,13 +271,63 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
 }
 
 void PlaylistView::remove_selected(backend::CoreController& core) {
-    if (!core.get_playlist().empty() && m_selected_index >= 0 && m_selected_index < static_cast<int>(core.get_playlist().size())) {
-        core.get_playlist().remove_track(m_selected_index);
-        if (m_selected_index >= static_cast<int>(core.get_playlist().size())) {
-            m_selected_index = static_cast<int>(core.get_playlist().size()) - 1;
-        }
-        core.save_session();
+    int total = static_cast<int>(core.get_playlist().size());
+    if (total <= 0 || m_selected_index < 0 || m_selected_index >= total) {
+        return;
     }
+
+    auto tr_opt = core.get_playlist().get_track(m_selected_index);
+    std::string track_id = tr_opt.has_value() ? tr_opt->id : "";
+    std::string original_url = tr_opt.has_value() ? tr_opt->original_url : "";
+
+    if (!track_id.empty()) {
+        core.get_resolver().remove_from_cache(track_id);
+    }
+    if (!original_url.empty()) {
+        core.get_resolver().remove_from_cache(original_url);
+    }
+
+    int current_idx = core.get_playlist().get_current_index();
+    bool was_current = (current_idx == m_selected_index);
+
+    core.get_playlist().remove_track(m_selected_index);
+    int new_total = static_cast<int>(core.get_playlist().size());
+
+    if (was_current) {
+        core.stop();
+        if (new_total == 0) {
+            core.set_current_title("Freenamp Ready");
+            core.set_status_text("Pronto");
+        } else {
+            auto next_tr = core.get_playlist().get_current_track();
+            if (next_tr.has_value()) {
+                core.set_current_title(next_tr->title);
+            } else {
+                core.set_current_title("Freenamp Ready");
+            }
+            core.set_status_text("Pronto");
+        }
+    }
+
+    if (new_total == 0) {
+        m_selected_index = 0;
+        m_scroll_offset = 0;
+        core.set_current_title("Freenamp Ready");
+        core.set_status_text("Pronto");
+    } else {
+        if (m_selected_index >= new_total) {
+            m_selected_index = new_total - 1;
+        }
+        if (core.get_state() == backend::PlaybackState::Stopped) {
+            core.get_playlist().set_current_index(m_selected_index);
+            auto cur_tr = core.get_playlist().get_current_track();
+            if (cur_tr.has_value()) {
+                core.set_current_title(cur_tr->title);
+            }
+        }
+    }
+
+    core.save_session();
 }
 
 void PlaylistView::handle_mouse_up(int /*mx*/, int /*my*/) {
@@ -298,6 +359,26 @@ void PlaylistView::handle_mouse_wheel(int wheel_y) {
     } else if (wheel_y < 0) {
         m_scroll_offset += 2;
     }
+}
+
+void PlaylistView::ensure_visible(int index, int total_tracks) {
+    if (total_tracks >= 0) {
+        m_total_tracks = total_tracks;
+    }
+    int visible_lines = m_list_box.h / 12;
+    if (visible_lines <= 0 || m_total_tracks <= 0) return;
+
+    if (m_total_tracks <= visible_lines) {
+        m_scroll_offset = 0;
+        return;
+    }
+
+    if (index < m_scroll_offset) {
+        m_scroll_offset = index;
+    } else if (index >= m_scroll_offset + visible_lines) {
+        m_scroll_offset = index - visible_lines + 1;
+    }
+    m_scroll_offset = std::clamp(m_scroll_offset, 0, std::max(0, m_total_tracks - visible_lines));
 }
 
 } // namespace freenamp::frontend

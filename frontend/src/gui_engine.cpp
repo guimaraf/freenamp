@@ -276,6 +276,21 @@ void GuiEngine::render(backend::CoreController& core) {
 
 void GuiEngine::run(backend::CoreController& core) {
     core.load_session();
+    int cur_idx = core.get_playlist().get_current_index();
+    if (cur_idx >= 0) {
+        m_playlist_view.set_selected_index(cur_idx);
+        m_playlist_view.ensure_visible(cur_idx, static_cast<int>(core.get_playlist().size()));
+    }
+
+    core.set_event_callback([this, &core](const std::string& event_name) {
+        if (event_name == "track_changed") {
+            int idx = core.get_playlist().get_current_index();
+            if (idx >= 0) {
+                m_playlist_view.set_selected_index(idx);
+                m_playlist_view.ensure_visible(idx, static_cast<int>(core.get_playlist().size()));
+            }
+        }
+    });
 
     while (m_running) {
         process_events(core);

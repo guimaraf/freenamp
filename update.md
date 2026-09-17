@@ -98,4 +98,20 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
 - **Contador de Faixas e Tempo Abaixo da Playlist**:
   - A informação de contagem de faixas e tempo acumulado foi reposicionada para a barra de ferramentas inferior da janela, completamente fora da caixa preta da listagem, mantendo a grade de faixas 100% limpa.
 
+---
+
+## 8. Persistência de Faixa Ativa, Purga de Cache e Limpeza do Painel Principal
+
+- **Persistência do Índice da Faixa Selecionada**:
+  - Ao fechar o software, o número da faixa que estava selecionada/em reprodução é salvo em `cache/settings.json` (`selected_index`).
+  - Ao reabrir, a mesma faixa (ex: faixa 5) é restaurada e selecionada na lista, seu título é exibido no letreiro do painel principal, o visor de 7 segmentos exibe seu número correspondente (`05`), a rolagem é ajustada para manter a faixa visível e ela fica pronta para início imediato ao pressionar Play (`X` ou botão de transporte).
+- **Limpeza do Quadro Principal e Purga do `yt_cache.json` ao Clicar em CLEAR**:
+  - O botão `CLEAR` agora interrompe a reprodução de áudio imediatamente (`core.stop()`), esvazia a playlist, apaga completamente o cache em memória do `YtResolver` e grava `cache/yt_cache.json` zerado em disco.
+  - O painel principal é totalmente limpo: o título volta para "Freenamp Ready", o indicador LED de faixa zera para `00` e o cronômetro digital para `00:00`.
+- **Remoção de Músicas Individuais do Cache e Sincronização do Painel Principal**:
+  - Ao deletar qualquer faixa (seja pelo botão `- REM` ou pela tecla `Delete`), os metadados e streams correspondentes são purgados do `YtResolver` e o arquivo `cache/yt_cache.json` é atualizado em disco, impedindo o acúmulo desnecessário de megabytes.
+  - Se a faixa excluída for a que estava em reprodução ou selecionada no painel principal, a reprodução é interrompida e o display do quadro principal é limpo/atualizado instantaneamente (para a próxima faixa disponível ou para "Freenamp Ready" caso a playlist fique vazia).
+- **Encerramento Limpo Garantido**:
+  - O botão de fechar `[X]` da barra de título do painel principal agora despacha `SDL_QUIT`, garantindo que todo o encerramento do processo passe pelo ciclo padrão de persistência de sessão (`core.save_session()`).
+
 

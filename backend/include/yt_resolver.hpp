@@ -58,6 +58,7 @@ public:
 
     // Cache management
     void clear_cache();
+    void remove_from_cache(const std::string& id_or_url);
     bool has_cached_stream_url(const std::string& id) const;
     std::optional<std::string> get_cached_stream_url(const std::string& id) const;
     bool save_cache_to_file(const std::string& filepath) const;

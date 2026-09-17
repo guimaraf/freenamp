@@ -101,7 +101,10 @@ bool MainView::handle_mouse_down(int mx, int my, backend::CoreController& core, 
     if (my >= by && my <= by + 16) {
         // Close button check
         if (mx >= bx + m_bounds.w - 15) {
-            std::exit(0);
+            SDL_Event quit_ev;
+            quit_ev.type = SDL_QUIT;
+            SDL_PushEvent(&quit_ev);
+            return true;
         }
         m_dragging_window = true;
         m_drag_off_x = mx - bx;
