@@ -1,0 +1,16 @@
+# Build output
+build/*
+!build/.gitkeep
+
+# IDE and temporary files
+.vscode/
+.idea/
+*.user
+*.suo
+*.pdb
+
+# Compiled binaries and libraries in compile/
+compile/bin/*.exe
+compile/libs/*
+!compile/libs/.gitkeep
+compile/venv/
