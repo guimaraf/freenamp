@@ -32,6 +32,21 @@ void test_duration_formatting() {
     std::cout << "  -> Formatacao de duracao passou com sucesso!\n\n";
 }
 
+void test_stream_url_expiration() {
+    std::cout << "[TEST] 2.1 Testando verificacao de expiracao de stream URL...\n";
+    assert(YtResolver::is_stream_url_expired(""));
+
+    // An expired URL from timestamp 1000000000 (year 2001)
+    std::string expired_url = "https://rr1---sn-uxa-h55e.googlevideo.com/videoplayback?expire=1000000000&ei=test";
+    assert(YtResolver::is_stream_url_expired(expired_url));
+
+    // A future URL (timestamp 2500000000, year 2049)
+    std::string valid_url = "https://rr1---sn-uxa-h55e.googlevideo.com/videoplayback?expire=2500000000&ei=test";
+    assert(!YtResolver::is_stream_url_expired(valid_url));
+
+    std::cout << "  -> Verificacao de expiracao de URL passou com sucesso!\n\n";
+}
+
 void test_live_resolution(YtResolver& resolver) {
     std::cout << "[TEST] 3. Testando resolucao real de video do YouTube (jNQXAC9IVRw - 'Me at the zoo')...\n";
 
@@ -78,6 +93,7 @@ int main() {
 
     test_url_detection();
     test_duration_formatting();
+    test_stream_url_expiration();
 
     YtResolver resolver("compile/bin/yt-dlp.exe");
     std::cout << "[INFO] Caminho do yt-dlp: " << resolver.get_ytdlp_path() << "\n\n";

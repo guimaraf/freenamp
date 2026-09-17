@@ -153,7 +153,9 @@ void CoreController::play_current_playlist_track() {
     auto track = current.value();
     m_current_title = track.title;
 
-    if (track.is_resolved && !track.stream_url.empty()) {
+    bool url_valid = track.is_resolved && !track.stream_url.empty() && !YtResolver::is_stream_url_expired(track.stream_url);
+
+    if (url_valid) {
         m_status_message = "Tocando: " + track.title;
         m_loading_progress = 100;
         m_audio.load_url(track.stream_url, true);
@@ -163,8 +165,10 @@ void CoreController::play_current_playlist_track() {
             return; // Já existe uma resolução em andamento
         }
         m_loading_progress = 25;
-        m_status_message = "Resolvendo stream de audio...";
+        m_status_message = "Renovando stream de audio...";
         notify_event("track_loading");
+
+        m_resolver.remove_from_cache(track.id);
 
         std::thread([this, track_id = track.id, idx = m_playlist.get_current_index()]() {
             m_loading_progress = 50;

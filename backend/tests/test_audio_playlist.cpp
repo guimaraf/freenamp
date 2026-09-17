@@ -6,6 +6,7 @@
 #include <cassert>
 #include <thread>
 #include <chrono>
+#include <filesystem>
 
 using namespace freenamp::backend;
 
@@ -89,6 +90,56 @@ void test_playlist_manager() {
     std::cout << "  -> PlaylistManager passou com sucesso!\n\n";
 }
 
+void test_playlist_expired_url_persistence() {
+    std::cout << "[TEST] 2.1 Testando descarte de URLs expiradas no save/load da playlist...\n";
+    std::filesystem::create_directories("cache");
+
+    PlaylistManager pm;
+    TrackMetadata t1;
+    t1.id = "vid1";
+    t1.title = "Song 1";
+    t1.uploader = "Artist 1";
+    t1.duration_seconds = 180;
+    t1.original_url = "https://youtube.com/watch?v=vid1";
+    t1.stream_url = "https://googlevideo.com/videoplayback?expire=1000000000"; // Expired
+    t1.is_resolved = true;
+    pm.add_track(t1);
+
+    TrackMetadata t2;
+    t2.id = "vid2";
+    t2.title = "Song 2";
+    t2.uploader = "Artist 2";
+    t2.duration_seconds = 210;
+    t2.original_url = "https://youtube.com/watch?v=vid2";
+    t2.stream_url = "https://googlevideo.com/videoplayback?expire=2500000000"; // Valid
+    t2.is_resolved = true;
+    pm.add_track(t2);
+
+    std::string test_file = "cache/test_playlist_expiry.json";
+    assert(pm.save_to_file(test_file));
+
+    PlaylistManager loaded_pm;
+    assert(loaded_pm.load_from_file(test_file));
+    assert(loaded_pm.size() == 2);
+
+    auto tr1 = loaded_pm.get_track(0);
+    assert(tr1.has_value());
+    assert(tr1->id == "vid1");
+    assert(tr1->title == "Song 1");
+    assert(tr1->stream_url.empty()); // Must be stripped!
+    assert(!tr1->is_resolved);       // Must be marked unresolved!
+
+    auto tr2 = loaded_pm.get_track(1);
+    assert(tr2.has_value());
+    assert(tr2->id == "vid2");
+    assert(tr2->title == "Song 2");
+    assert(!tr2->stream_url.empty()); // Must remain valid!
+    assert(tr2->is_resolved);
+
+    std::filesystem::remove(test_file);
+    std::cout << "  -> Persistencia com URLs expiradas validada com sucesso!\n\n";
+}
+
 void test_audio_engine_lifecycle() {
     std::cout << "[TEST] 3. Testando AudioEngine (Inicializacao headless, Volume, Pan e Espectro)...\n";
 
@@ -169,6 +220,7 @@ int main() {
 
     test_equalizer_dsp();
     test_playlist_manager();
+    test_playlist_expired_url_persistence();
     test_audio_engine_lifecycle();
     test_live_headless_playback();
 

@@ -156,4 +156,24 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
 - **Inclusão no Pacote Portátil**:
   - Atualizado o script `compile/scripts/build_portable_release.ps1` para incluir a pasta `assets/` e o arquivo `freenamp.ico` na distribuição portátil `build/freenamp_portable/`.
 
+---
+
+## 12. Persistência de Playlist e Renovação Automática de Streams de Áudio do YouTube
+
+- **Diagnóstico da Causa Raiz**:
+  - As URLs diretas de áudio do CDN do Google/YouTube (`*.googlevideo.com/videoplayback?...`) possuem validade temporária limitada (máximo de 6 horas) através do parâmetro `expire=<unix_timestamp>`.
+  - Ao salvar uma playlist com `stream_url` e `is_resolved: true` no arquivo `cache/playlist.json`, as faixas deixavam de tocar no dia seguinte porque o CDN do YouTube retornava erro HTTP 403 Forbidden para os links com token expirado.
+- **Detecção Precisa de Expiracão (`YtResolver::is_stream_url_expired`)**:
+  - Implementada função estática que analisa o parâmetro `expire=` contido nas URLs da CDN do YouTube e compara com o relógio do sistema (`std::chrono::system_clock`).
+  - Adicionada margem de segurança de 120 segundos para evitar expiração durante o carregamento de buffer inicial.
+- **Descarte de URLs Expiradas no Cache e Persistência**:
+  - `YtResolver`: As funções de leitura e escrita de cache (`resolve_track_info`, `resolve_stream_url`, `save_cache_to_file`, `load_cache_from_file`, `get_cached_stream_url`, `has_cached_stream_url`) descartam automaticamente links expirados, preservando os metadados fixos (título, autor, duração, ID).
+  - `PlaylistManager`: Em `save_to_file` e `load_from_file`, faixas com URLs expiradas têm `stream_url` limpa e `is_resolved` redefinido para `false`. Os metadados da playlist permanecem intactos indefinidamente.
+  - Em `check_prefetch`, se a próxima faixa tiver URL expirada, o motor dispara automaticamente uma nova resolução em background antes do término da faixa atual.
+- **Renovação Sob Demanda Transparente (`CoreController::play_current_playlist_track`)**:
+  - Ao iniciar a reprodução de qualquer faixa da playlist salva cuja URL esteja expirada ou não resolvida, o player exibe o status `"Renovando stream de audio..."`, purga o cache obsoleto e obtém um link novo em tempo real via `yt-dlp`.
+  - O fluxo é 100% automático e dispensa qualquer ação manual de "refresh" por parte do usuário.
+- **Testes Unitários Automatizados**:
+  - Criados testes dedicados em `test_yt_resolver.cpp` e `test_audio_playlist.cpp` que validam o descarte de links expirados e a integridade da persistência de metadados.
+
 

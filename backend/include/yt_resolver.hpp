@@ -46,6 +46,9 @@ public:
     // Sanitize and clean URL (removes Ctrl+V artifacts, spaces, extracts valid URL)
     static std::string sanitize_url(const std::string& input);
 
+    // Check if YouTube CDN stream URL is expired (via expire= timestamp)
+    static bool is_stream_url_expired(const std::string& stream_url);
+
     // Synchronous resolution methods
     std::optional<TrackMetadata> resolve_track_info(const std::string& url_or_id, bool fetch_stream_url = true);
     std::optional<std::string> resolve_stream_url(const std::string& video_id_or_url);

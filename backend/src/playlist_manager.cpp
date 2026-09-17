@@ -92,8 +92,13 @@ bool PlaylistManager::save_to_file(const std::string& filepath) const {
             item["uploader"] = tr.uploader;
             item["duration"] = tr.duration_seconds;
             item["original_url"] = tr.original_url;
-            item["stream_url"] = tr.stream_url;
-            item["is_resolved"] = tr.is_resolved;
+            if (!tr.stream_url.empty() && !YtResolver::is_stream_url_expired(tr.stream_url)) {
+                item["stream_url"] = tr.stream_url;
+                item["is_resolved"] = tr.is_resolved;
+            } else {
+                item["stream_url"] = "";
+                item["is_resolved"] = false;
+            }
             j.push_back(item);
         }
 
@@ -124,8 +129,14 @@ bool PlaylistManager::load_from_file(const std::string& filepath) {
             tr.uploader = item.value("uploader", "Unknown Artist");
             tr.duration_seconds = item.value("duration", 0);
             tr.original_url = item.value("original_url", "");
-            tr.stream_url = item.value("stream_url", "");
-            tr.is_resolved = item.value("is_resolved", false);
+            std::string loaded_stream = item.value("stream_url", "");
+            if (!loaded_stream.empty() && !YtResolver::is_stream_url_expired(loaded_stream)) {
+                tr.stream_url = loaded_stream;
+                tr.is_resolved = item.value("is_resolved", false);
+            } else {
+                tr.stream_url = "";
+                tr.is_resolved = false;
+            }
             m_tracks.push_back(tr);
         }
 
@@ -352,7 +363,7 @@ void PlaylistManager::check_prefetch(YtResolver& resolver, double current_pos, d
 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_tracks[next_idx].is_resolved) {
+        if (m_tracks[next_idx].is_resolved && !m_tracks[next_idx].stream_url.empty() && !YtResolver::is_stream_url_expired(m_tracks[next_idx].stream_url)) {
             m_prefetched_index = next_idx;
             return;
         }

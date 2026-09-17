@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <chrono>
+#include <ctime>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -112,6 +114,32 @@ std::string YtResolver::sanitize_url(const std::string& input) {
     }
 
     return clean;
+}
+
+bool YtResolver::is_stream_url_expired(const std::string& stream_url) {
+    if (stream_url.empty()) return true;
+
+    // Check expire= parameter in googlevideo URL
+    size_t pos = stream_url.find("expire=");
+    if (pos != std::string::npos) {
+        try {
+            size_t start_val = pos + 7;
+            size_t end_pos = stream_url.find('&', start_val);
+            std::string expire_str = (end_pos != std::string::npos)
+                ? stream_url.substr(start_val, end_pos - start_val)
+                : stream_url.substr(start_val);
+            long long expire_time = std::stoll(expire_str);
+            auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+            // Expired or expiring within the next 2 minutes (120 seconds)
+            if (now + 120 >= expire_time) {
+                return true;
+            }
+            return false;
+        } catch (...) {
+            return true;
+        }
+    }
+    return false;
 }
 
 UrlType YtResolver::detect_url_type(const std::string& raw_input) {
@@ -268,7 +296,10 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
         std::lock_guard<std::mutex> lock(m_cache_mutex);
         auto it = m_metadata_cache.find(clean_url);
         if (it != m_metadata_cache.end()) {
-            if (!fetch_stream_url || it->second.is_resolved) {
+            if (!fetch_stream_url) {
+                return it->second;
+            }
+            if (it->second.is_resolved && !is_stream_url_expired(it->second.stream_url)) {
                 return it->second;
             }
         }
@@ -332,7 +363,11 @@ std::optional<std::string> YtResolver::resolve_stream_url(const std::string& vid
         std::lock_guard<std::mutex> lock(m_cache_mutex);
         auto it = m_stream_url_cache.find(clean_url);
         if (it != m_stream_url_cache.end()) {
-            return it->second;
+            if (!is_stream_url_expired(it->second)) {
+                return it->second;
+            } else {
+                m_stream_url_cache.erase(it);
+            }
         }
     }
 
@@ -473,14 +508,20 @@ void YtResolver::remove_from_cache(const std::string& id_or_url) {
 
 bool YtResolver::has_cached_stream_url(const std::string& id) const {
     std::lock_guard<std::mutex> lock(m_cache_mutex);
-    return m_stream_url_cache.find(id) != m_stream_url_cache.end();
+    auto it = m_stream_url_cache.find(id);
+    if (it != m_stream_url_cache.end()) {
+        return !is_stream_url_expired(it->second);
+    }
+    return false;
 }
 
 std::optional<std::string> YtResolver::get_cached_stream_url(const std::string& id) const {
     std::lock_guard<std::mutex> lock(m_cache_mutex);
     auto it = m_stream_url_cache.find(id);
     if (it != m_stream_url_cache.end()) {
-        return it->second;
+        if (!is_stream_url_expired(it->second)) {
+            return it->second;
+        }
     }
     return std::nullopt;
 }
@@ -497,15 +538,22 @@ bool YtResolver::save_cache_to_file(const std::string& filepath) const {
             item["uploader"] = v.uploader;
             item["duration"] = v.duration_seconds;
             item["original_url"] = v.original_url;
-            item["stream_url"] = v.stream_url;
-            item["is_resolved"] = v.is_resolved;
+            if (!v.stream_url.empty() && !is_stream_url_expired(v.stream_url)) {
+                item["stream_url"] = v.stream_url;
+                item["is_resolved"] = v.is_resolved;
+            } else {
+                item["stream_url"] = "";
+                item["is_resolved"] = false;
+            }
             meta[k] = item;
         }
         j["metadata"] = meta;
 
         json streams = json::object();
         for (const auto& [k, v] : m_stream_url_cache) {
-            streams[k] = v;
+            if (!is_stream_url_expired(v)) {
+                streams[k] = v;
+            }
         }
         j["streams"] = streams;
 
@@ -536,8 +584,14 @@ bool YtResolver::load_cache_from_file(const std::string& filepath) {
                 tr.uploader = el.value().value("uploader", "Unknown Artist");
                 tr.duration_seconds = el.value().value("duration", 0);
                 tr.original_url = el.value().value("original_url", "");
-                tr.stream_url = el.value().value("stream_url", "");
-                tr.is_resolved = el.value().value("is_resolved", false);
+                std::string st = el.value().value("stream_url", "");
+                if (!st.empty() && !is_stream_url_expired(st)) {
+                    tr.stream_url = st;
+                    tr.is_resolved = el.value().value("is_resolved", false);
+                } else {
+                    tr.stream_url = "";
+                    tr.is_resolved = false;
+                }
                 m_metadata_cache[el.key()] = tr;
             }
         }
@@ -545,7 +599,10 @@ bool YtResolver::load_cache_from_file(const std::string& filepath) {
         if (j.contains("streams") && j["streams"].is_object()) {
             for (auto& el : j["streams"].items()) {
                 if (el.value().is_string()) {
-                    m_stream_url_cache[el.key()] = el.value().get<std::string>();
+                    std::string st = el.value().get<std::string>();
+                    if (!is_stream_url_expired(st)) {
+                        m_stream_url_cache[el.key()] = st;
+                    }
                 }
             }
         }
