@@ -1,4 +1,4 @@
-add_executable(freenamp
+add_executable(freenamp WIN32
     src/main.cpp
     src/retro_font.cpp
     src/retro_widgets.cpp

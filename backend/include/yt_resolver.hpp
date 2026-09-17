@@ -65,6 +65,7 @@ private:
     std::string m_ytdlp_path;
 
     mutable std::mutex m_cache_mutex;
+    mutable std::mutex m_process_mutex; // Garantia estrita de processo único yt-dlp
     std::unordered_map<std::string, std::string> m_stream_url_cache; // id -> stream_url
     std::unordered_map<std::string, TrackMetadata> m_metadata_cache;  // id -> TrackMetadata
 

@@ -71,7 +71,9 @@ void CoreController::play_current_playlist_track() {
         m_audio.load_url(track.stream_url, true);
         notify_event("track_changed");
     } else {
-        m_is_loading = true;
+        if (m_is_loading.exchange(true)) {
+            return; // Já existe uma resolução em andamento
+        }
         m_status_message = "Resolvendo stream de audio...";
         notify_event("track_loading");
 
@@ -236,8 +238,8 @@ void CoreController::update() {
         m_playlist.check_prefetch(m_resolver, pos, dur);
     }
 
-    // Auto-advance when track finishes
-    if (m_audio.is_track_finished()) {
+    // Auto-advance when track finishes (only if not currently resolving/loading)
+    if (!m_is_loading && m_audio.is_track_finished()) {
         next();
     }
 }

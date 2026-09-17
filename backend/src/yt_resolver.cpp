@@ -114,6 +114,7 @@ std::string YtResolver::build_command_line(const std::vector<std::string>& args)
 }
 
 std::string YtResolver::execute_command(const std::string& cmd_line) const {
+    std::lock_guard<std::mutex> proc_lock(m_process_mutex);
     std::string output;
 
 #ifdef _WIN32

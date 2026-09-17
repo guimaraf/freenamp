@@ -107,7 +107,7 @@ void AudioEngine::stop() {
     const char* cmd[] = { "stop", nullptr };
     mpv_command(m_mpv, cmd);
     m_current_state = PlaybackState::Stopped;
-    m_track_ended = true;
+    m_track_ended = false;
 }
 
 void AudioEngine::seek(double seconds_absolute) {
@@ -169,7 +169,9 @@ PlaybackState AudioEngine::get_state() {
         if (event->event_id == MPV_EVENT_END_FILE) {
             auto* end_data = static_cast<mpv_event_end_file*>(event->data);
             if (end_data && end_data->reason == MPV_END_FILE_REASON_EOF) {
-                m_track_ended = true;
+                if (m_current_state == PlaybackState::Playing) {
+                    m_track_ended = true;
+                }
                 m_current_state = PlaybackState::Stopped;
             }
         } else if (event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
@@ -215,8 +217,13 @@ double AudioEngine::get_duration() {
 }
 
 bool AudioEngine::is_track_finished() {
-    get_state(); // Polls events and updates m_track_ended
-    return m_track_ended;
+    get_state(); // Polls mpv events
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_track_ended) {
+        m_track_ended = false; // Consume the event once!
+        return true;
+    }
+    return false;
 }
 
 void AudioEngine::apply_equalizer() {
