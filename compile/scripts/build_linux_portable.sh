@@ -93,14 +93,43 @@ if [ -f "${DIST_ASSETS_DIR}/freenamp.desktop" ]; then
     cp -f "${DIST_ASSETS_DIR}/freenamp.desktop" "${DIST_DIR}/"
 fi
 
-# Copiar runtimes dinâmicos essenciais (libmpv, libSDL2) para core/ para portabilidade máxima
+# Copiar launcher executável portátil iniciar_freenamp.sh
+if [ -f "${ROOT_DIR}/compile/scripts/iniciar_freenamp.sh" ]; then
+    cp -f "${ROOT_DIR}/compile/scripts/iniciar_freenamp.sh" "${DIST_DIR}/iniciar_freenamp.sh"
+else
+    cat << 'EOF' > "${DIST_DIR}/iniciar_freenamp.sh"
+#!/usr/bin/env bash
+set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+chmod +x "${SCRIPT_DIR}/freenamp" "${SCRIPT_DIR}/bin/yt-dlp" 2>/dev/null || true
+export LD_LIBRARY_PATH="${SCRIPT_DIR}/core:${LD_LIBRARY_PATH:-}"
+exec "${SCRIPT_DIR}/freenamp" "$@"
+EOF
+fi
+chmod +x "${DIST_DIR}/iniciar_freenamp.sh"
+
+# Copiar runtimes dinâmicos essenciais para core/ para portabilidade 100%
 if [ "${BUNDLE_LIBS:-1}" = "1" ]; then
-    echo "[Freenamp] Empacotando bibliotecas dinâmicas do sistema em core/..."
-    for lib in $(ldd "${DIST_CORE_DIR}/libfreenamp_core.so" | grep -E 'libmpv|libSDL2' | awk '{print $3}'); do
-        if [ -f "$lib" ]; then
-            SONAME=$(basename "$lib")
-            cp -f -L "$lib" "${DIST_CORE_DIR}/${SONAME}" 2>/dev/null || cp -f "$lib" "${DIST_CORE_DIR}/"
-        fi
+    echo "[Freenamp] Empacotando dependências dinâmicas completas em core/..."
+    SYSTEM_EXCLUDES='^(libc\.so|libm\.so|libpthread\.so|libdl\.so|librt\.so|ld-linux|libresolv\.so|libnss|libgcc_s\.so|libstdc\+\+\.so|libX11|libxcb|libGL|libEGL|libvulkan|libdrm|libasound|libpulse|libwayland)'
+    
+    COPIED=1
+    while [ "$COPIED" -gt 0 ]; do
+        COPIED=0
+        for file in "${DIST_CORE_DIR}"/*.so* "${DIST_DIR}/freenamp"; do
+            [ -f "$file" ] || continue
+            for dep in $(ldd "$file" 2>/dev/null | grep '=> /' | awk '{print $3}'); do
+                [ -f "$dep" ] || continue
+                dep_name=$(basename "$dep")
+                if echo "$dep_name" | grep -Eq "$SYSTEM_EXCLUDES"; then
+                    continue
+                fi
+                if [ ! -f "${DIST_CORE_DIR}/${dep_name}" ]; then
+                    cp -f -L "$dep" "${DIST_CORE_DIR}/${dep_name}" 2>/dev/null || true
+                    COPIED=$((COPIED + 1))
+                fi
+            done
+        done
     done
 fi
 
@@ -113,6 +142,8 @@ ls -lh "${DIST_DIR}"
 ls -lh "${DIST_CORE_DIR}"
 ls -lh "${DIST_BIN_DIR}"
 echo ""
-echo "Para executar o Freenamp:"
+echo "Para executar o Freenamp (1-clique portátil):"
 echo "  cd ${DIST_DIR}"
+echo "  ./iniciar_freenamp.sh"
+echo "Ou diretamente:"
 echo "  ./freenamp"

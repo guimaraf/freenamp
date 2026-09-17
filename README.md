@@ -148,8 +148,9 @@ A pasta portátil estará pronta em `build/freenamp_portable_linux/`, contendo o
 #### 3. Execução:
 ```bash
 cd build/freenamp_portable_linux
-./freenamp
+./iniciar_freenamp.sh
 ```
+*(Ou dê duplo clique em `iniciar_freenamp.sh` no gerenciador de arquivos do seu ambiente Linux, ou execute `./freenamp` diretamente).*
 
 #### 4. Empacotar em AppImage (Opcional):
 ```bash
