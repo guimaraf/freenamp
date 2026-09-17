@@ -1,6 +1,12 @@
 #include "gui_engine.hpp"
 #include <iostream>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <SDL_syswm.h>
+#endif
+
 namespace freenamp::frontend {
 
 GuiEngine::GuiEngine(int width, int height)
@@ -30,6 +36,29 @@ bool GuiEngine::init() {
         std::cerr << "[GuiEngine] Falha ao criar janela SDL2: " << SDL_GetError() << "\n";
         return false;
     }
+
+#ifdef _WIN32
+    // Apply high quality 256x256 / 32x32 / 16x16 icon to window and taskbar
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    if (SDL_GetWindowWMInfo(m_window, &wmInfo)) {
+        HWND hwnd = wmInfo.info.win.window;
+        HICON hIconBig = (HICON)LoadImageW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(101), IMAGE_ICON, 256, 256, LR_DEFAULTCOLOR);
+        if (!hIconBig) {
+            hIconBig = (HICON)LoadImageW(NULL, L"assets/freenamp.ico", IMAGE_ICON, 256, 256, LR_LOADFROMFILE);
+        }
+        HICON hIconSmall = (HICON)LoadImageW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(101), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+        if (!hIconSmall) {
+            hIconSmall = (HICON)LoadImageW(NULL, L"assets/freenamp.ico", IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+        }
+        if (hIconBig) {
+            SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
+        }
+        if (hIconSmall) {
+            SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
+        }
+    }
+#endif
 
     m_renderer = SDL_CreateRenderer(
         m_window,

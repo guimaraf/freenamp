@@ -142,4 +142,18 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
   - Inserido o argumento `--playlist-end 50` e proteção de corte no laço de extração do `resolve_playlist`.
   - Garante que mesmo playlists quase infinitas (Mixes com até 1000 faixas) sejam importadas rapidamente em ~2 a 3 segundos com até 50 faixas completas, sem sobrecarregar a memória, o processador ou o cache do Freenamp.
 
+---
+
+## 11. Integração do Ícone de Alta Qualidade (`assets/freenamp.ico`)
+
+- **Embutimento Nativo no Executável (`freenamp.exe`) e DLL Core**:
+  - Criado arquivo de recursos Windows (`freenamp.rc.in`) e compilado via GNU `windres`.
+  - O ícone `assets/freenamp.ico` (256x256 com canal alfa / transparência) foi incorporado diretamente na seção de recursos PE do executável `freenamp.exe` e da biblioteca `libfreenamp_core.dll`.
+  - O Windows Explorer passa a renderizar o ícone personalizado de alta qualidade no arquivo do programa, atalhos e visualizações de ícones grandes/extra grandes.
+- **Aplicação Dinâmica na Janela SDL2 e Barra de Tarefas**:
+  - No `GuiEngine::init`, a janela do SDL2 recupera o `HWND` nativo via `SDL_GetWindowWMInfo` e aplica o ícone carregado dos recursos (com fallback para o arquivo em disco) nos tamanhos `ICON_BIG` (256x256) e `ICON_SMALL` (32x32/16x16) via mensagem `WM_SETICON`.
+  - A barra de tarefas do Windows, o menu Alt+Tab e a barra de título passam a exibir o ícone nativo com transparência preservada.
+- **Inclusão no Pacote Portátil**:
+  - Atualizado o script `compile/scripts/build_portable_release.ps1` para incluir a pasta `assets/` e o arquivo `freenamp.ico` na distribuição portátil `build/freenamp_portable/`.
+
 

@@ -24,6 +24,15 @@ target_link_libraries(freenamp_core PRIVATE
 )
 
 if(WIN32)
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/freenamp.rc.in
+        ${CMAKE_CURRENT_BINARY_DIR}/freenamp.rc
+        @ONLY
+    )
+    set(FREENAMP_RC ${CMAKE_CURRENT_BINARY_DIR}/freenamp.rc)
+
+    target_sources(freenamp_core PRIVATE ${FREENAMP_RC})
+
     target_link_libraries(freenamp_core PRIVATE
         ws2_32
         imm32
@@ -33,9 +42,10 @@ if(WIN32)
     )
 endif()
 
-# Native Win32 launcher executable (no console window)
+# Native Win32 launcher executable (no console window) with embedded icon
 add_executable(freenamp WIN32
     src/launcher.cpp
+    ${FREENAMP_RC}
 )
 
 # Copy SDL2.dll, libmpv-2.dll and freenamp_core to core/ folder in output

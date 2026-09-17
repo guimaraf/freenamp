@@ -38,6 +38,11 @@ if (Test-Path (Join-Path $distDir "libmpv-2.dll")) {
 # Copiar extrator yt-dlp.exe para a pasta bin/
 Copy-Item -Force (Join-Path $rootDir "compile/bin/yt-dlp.exe") $distBinDir
 
+# Copiar icone para a pasta assets/ da versao portatil
+$distAssetsDir = Join-Path $distDir "assets"
+New-Item -ItemType Directory -Force -Path $distAssetsDir | Out-Null
+Copy-Item -Force (Join-Path $rootDir "assets/freenamp.ico") $distAssetsDir
+
 Write-Host "`n[Freenamp] Pacote portatil standalone gerado com sucesso em:"
 Write-Host "$distDir"
 Get-ChildItem -Recurse $distDir | Select-Object Name, Length
