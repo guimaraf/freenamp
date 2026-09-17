@@ -29,6 +29,7 @@ public:
     void toggle_visible() { m_visible = !m_visible; }
 
     int get_selected_index() const { return m_selected_index; }
+    void remove_selected(backend::CoreController& core);
 
     bool is_dragging_window() const { return m_dragging_window; }
     bool is_resizing() const { return m_is_resizing; }

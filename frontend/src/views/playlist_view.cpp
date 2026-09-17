@@ -217,12 +217,7 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
     // - REM button
     Rect rem_r = { bx + m_btn_rem.x, by + m_btn_rem.y, m_btn_rem.w, m_btn_rem.h };
     if (rem_r.contains(mx, my)) {
-        if (!core.get_playlist().empty() && m_selected_index >= 0) {
-            core.get_playlist().remove_track(m_selected_index);
-            if (m_selected_index >= static_cast<int>(core.get_playlist().size())) {
-                m_selected_index = static_cast<int>(core.get_playlist().size()) - 1;
-            }
-        }
+        remove_selected(core);
         return true;
     }
 
@@ -232,6 +227,7 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
         core.get_playlist().clear();
         m_selected_index = 0;
         m_scroll_offset = 0;
+        core.save_session();
         return true;
     }
 
@@ -241,6 +237,7 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
         if (m_selected_index > 0) {
             core.get_playlist().move_track(m_selected_index, m_selected_index - 1);
             m_selected_index--;
+            core.save_session();
         }
         return true;
     }
@@ -251,11 +248,22 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
         if (m_selected_index >= 0 && m_selected_index < static_cast<int>(core.get_playlist().size()) - 1) {
             core.get_playlist().move_track(m_selected_index, m_selected_index + 1);
             m_selected_index++;
+            core.save_session();
         }
         return true;
     }
 
     return true;
+}
+
+void PlaylistView::remove_selected(backend::CoreController& core) {
+    if (!core.get_playlist().empty() && m_selected_index >= 0 && m_selected_index < static_cast<int>(core.get_playlist().size())) {
+        core.get_playlist().remove_track(m_selected_index);
+        if (m_selected_index >= static_cast<int>(core.get_playlist().size())) {
+            m_selected_index = static_cast<int>(core.get_playlist().size()) - 1;
+        }
+        core.save_session();
+    }
 }
 
 void PlaylistView::handle_mouse_up(int /*mx*/, int /*my*/) {

@@ -2,6 +2,8 @@
 #include <iostream>
 #include <thread>
 #include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 namespace freenamp::backend {
 
@@ -20,6 +22,17 @@ void CoreController::save_session() {
         std::filesystem::create_directories("cache");
         m_playlist.save_to_file("cache/playlist.json");
         m_resolver.save_cache_to_file("cache/yt_cache.json");
+
+        nlohmann::json settings;
+        settings["volume"] = m_audio.get_volume();
+        settings["pan"] = m_audio.get_pan();
+        settings["shuffle"] = is_shuffle();
+        settings["repeat"] = static_cast<int>(get_repeat());
+
+        std::ofstream ofs("cache/settings.json");
+        if (ofs.is_open()) {
+            ofs << settings.dump(2);
+        }
     } catch (...) {}
 }
 
@@ -33,6 +46,24 @@ void CoreController::load_session() {
             }
             m_status_message = "Pronto (" + std::to_string(m_playlist.size()) + " faixas)";
             notify_event("playlist_updated");
+        }
+
+        std::ifstream ifs("cache/settings.json");
+        if (ifs.is_open()) {
+            nlohmann::json settings;
+            ifs >> settings;
+            if (settings.contains("volume") && settings["volume"].is_number()) {
+                m_audio.set_volume(settings["volume"].get<double>());
+            }
+            if (settings.contains("pan") && settings["pan"].is_number()) {
+                m_audio.set_pan(settings["pan"].get<double>());
+            }
+            if (settings.contains("shuffle") && settings["shuffle"].is_boolean()) {
+                m_playlist.set_shuffle(settings["shuffle"].get<bool>());
+            }
+            if (settings.contains("repeat") && settings["repeat"].is_number_integer()) {
+                m_playlist.set_repeat(static_cast<RepeatMode>(settings["repeat"].get<int>()));
+            }
         }
     } catch (...) {}
 }

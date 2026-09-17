@@ -242,6 +242,10 @@ void GuiEngine::process_events(backend::CoreController& core) {
                 core.set_volume(core.get_volume() + 5.0);
             } else if (key == SDLK_DOWN) {
                 core.set_volume(core.get_volume() - 5.0);
+            } else if (key == SDLK_DELETE) {
+                if (m_playlist_view.is_visible()) {
+                    m_playlist_view.remove_selected(core);
+                }
             }
         }
     }

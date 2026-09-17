@@ -77,3 +77,14 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
   - `test_audio_playlist.exe`: 4 suítes de teste (Equalizador, DSP, PlaylistManager, AudioEngine) aprovadas com sucesso.
   - `test_url_flow.exe`: Suíte completa de sanitização de URLs, classificação de Mixes e resolução assíncrona aprovada com código de saída 0.
 - **Pacote Distribuível**: Atualizado em `build/freenamp_portable/` incluindo a nova estrutura de pastas (`cache/`) e executável atualizado.
+
+---
+
+## 6. Persistência de Volume e Atalho Delete na Playlist
+
+- **Persistência de Volume e Configurações de Áudio (`cache/settings.json`)**:
+  - O nível do volume (`0.0` a `100.0`), balanço/pan, estado de shuffle e modo de repetição são gravados em disco ao fechar e a cada alteração.
+  - Ao reiniciar a aplicação, o volume anterior é restaurado exatamente no mesmo patamar, evitando que o player volte sempre no volume máximo (100%).
+- **Remoção de Faixa via Tecla Delete**:
+  - Ao selecionar qualquer item na lista de músicas da Playlist e pressionar a tecla `Delete` do teclado (`SDLK_DELETE`), a faixa é removida da fila e a lista persistida automaticamente.
+
