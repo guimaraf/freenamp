@@ -111,16 +111,6 @@ std::string YtResolver::sanitize_url(const std::string& input) {
         if (end != std::string::npos) clean = clean.substr(0, end + 1);
     }
 
-    // 4. Strip radio/mix parameters (&list=RD... or &list=UL...) which fail on yt-dlp flat-playlist
-    size_t rd_pos = clean.find("&list=RD");
-    if (rd_pos != std::string::npos) {
-        clean = clean.substr(0, rd_pos);
-    }
-    size_t ul_pos = clean.find("&list=UL");
-    if (ul_pos != std::string::npos) {
-        clean = clean.substr(0, ul_pos);
-    }
-
     return clean;
 }
 
@@ -128,21 +118,16 @@ UrlType YtResolver::detect_url_type(const std::string& raw_input) {
     std::string input = sanitize_url(raw_input);
     if (input.empty()) return UrlType::Unknown;
 
-    // A pure playlist URL has "playlist?list="
-    if (input.find("playlist?list=") != std::string::npos) {
+    // Any URL with a playlist parameter (list=, playlist?list=, Mix / Radio) is a Playlist
+    if (input.find("list=") != std::string::npos) {
         return UrlType::Playlist;
     }
 
-    // If it has watch?v=, it is ALWAYS a Single Video (even if it has &list=)
+    // Single video formats
     if (input.find("watch?v=") != std::string::npos ||
         input.find("youtu.be/") != std::string::npos ||
         input.find("youtube.com/shorts/") != std::string::npos) {
         return UrlType::SingleVideo;
-    }
-
-    // Any other list= without watch?v= is a playlist
-    if (input.find("list=") != std::string::npos) {
-        return UrlType::Playlist;
     }
 
     // 11-character video ID
@@ -377,6 +362,7 @@ std::optional<PlaylistMetadata> YtResolver::resolve_playlist(const std::string& 
 
     std::vector<std::string> args = {
         "--flat-playlist",
+        "--playlist-end", "50",
         "-J",
         "--skip-download",
         "--no-warnings",
@@ -408,6 +394,9 @@ std::optional<PlaylistMetadata> YtResolver::resolve_playlist(const std::string& 
                 track.is_resolved = false; // Resolved on-demand when about to play
 
                 playlist.tracks.push_back(track);
+                if (playlist.tracks.size() >= 50) {
+                    break;
+                }
             }
         }
 

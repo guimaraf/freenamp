@@ -131,4 +131,15 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
   - Os títulos das faixas na lista agora são limitados dinamicamente (~25-30 caracteres) respeitando a distância da coluna de duração.
   - Títulos extensos recebem sufixo `..` (ex: `1. Bohemian Rhapsody -..`), impedindo que o texto se sobreponha à minutagem (`03:45`) e mantendo a lista perfeitamente legível.
 
+---
+
+## 10. Suporte a YouTube Mixes / Rádio e Limitação Segura de 50 Faixas
+
+- **Correção da Sanitização e Classificação de URLs**:
+  - Removido o filtro que descartava parâmetros `&list=RD...` (Mix) e `&list=UL...`.
+  - O classificador de URLs (`detect_url_type`) agora identifica qualquer endereço contendo `list=` como `UrlType::Playlist`, permitindo que playlists geradas dinamicamente pelo YouTube a partir de uma música semente sejam adicionadas integralmente.
+- **Limite Seguro de 50 Faixas no `yt-dlp`**:
+  - Inserido o argumento `--playlist-end 50` e proteção de corte no laço de extração do `resolve_playlist`.
+  - Garante que mesmo playlists quase infinitas (Mixes com até 1000 faixas) sejam importadas rapidamente em ~2 a 3 segundos com até 50 faixas completas, sem sobrecarregar a memória, o processador ou o cache do Freenamp.
+
 
