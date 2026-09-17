@@ -27,6 +27,10 @@ int main_app(int argc, char* argv[]) {
 }
 
 #if defined(_WIN32)
+extern "C" __declspec(dllexport) int freenamp_run(int argc, char* argv[]) {
+    return main_app(argc, argv);
+}
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     return main_app(__argc, __argv);
 }

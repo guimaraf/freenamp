@@ -90,14 +90,24 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
             item_color = { 255, 255, 255, 255 };
         }
 
-        // Format: "1. Artist - Title"
-        std::string line_text = std::to_string(track_idx + 1) + ". " + track.title;
-        RetroFont::draw_text(renderer, line_text, list_r.x + 4, item_y + 2, item_color, 1);
-
         // Duration on right: "03:45"
         std::string dur_text = backend::YtResolver::format_duration(track.duration_seconds);
         int dur_w = static_cast<int>(dur_text.size()) * 8;
-        RetroFont::draw_text(renderer, dur_text, list_r.x + list_r.w - dur_w - 6, item_y + 2, item_color, 1);
+        int dur_x = list_r.x + list_r.w - dur_w - 6;
+
+        // Truncate long title to keep playlist clean (~25-30 chars max, never overlapping duration)
+        std::string prefix = std::to_string(track_idx + 1) + ". ";
+        int avail_title_w = dur_x - (list_r.x + 4) - static_cast<int>(prefix.size()) * 8 - 4;
+        int max_title_chars = std::max(6, avail_title_w / 8);
+
+        std::string display_title = track.title;
+        if (static_cast<int>(display_title.size()) > max_title_chars) {
+            display_title = display_title.substr(0, std::max(1, max_title_chars - 2)) + "..";
+        }
+
+        std::string line_text = prefix + display_title;
+        RetroFont::draw_text(renderer, line_text, list_r.x + 4, item_y + 2, item_color, 1);
+        RetroFont::draw_text(renderer, dur_text, dur_x, item_y + 2, item_color, 1);
     }
 
     SDL_RenderSetClipRect(renderer, nullptr);

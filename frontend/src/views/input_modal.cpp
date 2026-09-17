@@ -54,13 +54,23 @@ void InputModal::render(SDL_Renderer* renderer, int canvas_w, int canvas_h) {
     Rect inp_r = { bx + m_box_input.x, by + m_box_input.y, m_box_input.w, m_box_input.h };
     RetroWidgets::draw_recessed_box(renderer, inp_r);
 
-    // Render input text
+    // Render input text with clipping and sliding window
     std::string display_str = m_input_text;
     m_cursor_blink++;
     if ((m_cursor_blink / 20) % 2 == 0) {
         display_str += "_";
     }
-    RetroFont::draw_text(renderer, display_str, inp_r.x + 4, inp_r.y + 6, Palette::TextActive, 1);
+
+    SDL_Rect clip_r = { inp_r.x + 2, inp_r.y + 2, inp_r.w - 4, inp_r.h - 4 };
+    SDL_RenderSetClipRect(renderer, &clip_r);
+
+    int max_chars = (inp_r.w - 8) / 8;
+    std::string visible_text = display_str;
+    if (static_cast<int>(visible_text.size()) > max_chars && max_chars > 0) {
+        visible_text = visible_text.substr(visible_text.size() - max_chars);
+    }
+    RetroFont::draw_text(renderer, visible_text, inp_r.x + 4, inp_r.y + 6, Palette::TextActive, 1);
+    SDL_RenderSetClipRect(renderer, nullptr);
 
     // OK and Cancel buttons
     Rect ok_r = { bx + m_btn_ok.x, by + m_btn_ok.y, m_btn_ok.w, m_btn_ok.h };

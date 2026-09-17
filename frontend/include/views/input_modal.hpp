@@ -28,11 +28,11 @@ public:
 private:
     bool m_is_open = false;
     std::string m_input_text;
-    Rect m_bounds{ 0, 0, 360, 110 };
+    Rect m_bounds{ 0, 0, 480, 115 };
 
-    Rect m_box_input{ 15, 42, 330, 20 };
-    Rect m_btn_ok{ 90, 72, 80, 22 };
-    Rect m_btn_cancel{ 190, 72, 80, 22 };
+    Rect m_box_input{ 15, 42, 450, 20 };
+    Rect m_btn_ok{ 140, 74, 90, 22 };
+    Rect m_btn_cancel{ 250, 74, 90, 22 };
 
     int m_cursor_blink = 0;
 };

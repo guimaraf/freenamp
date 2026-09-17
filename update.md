@@ -114,4 +114,21 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
 - **Encerramento Limpo Garantido**:
   - O botão de fechar `[X]` da barra de título do painel principal agora despacha `SDL_QUIT`, garantindo que todo o encerramento do processo passe pelo ciclo padrão de persistência de sessão (`core.save_session()`).
 
+---
+
+## 9. Isolamento de DLLs em `core/`, Eliminação do `.bat`, Modal de URL e Truncamento de Títulos
+
+- **Isolamento de DLLs na Subpasta `core/`**:
+  - `SDL2.dll`, `libmpv-2.dll` e a biblioteca compartilhada `libfreenamp_core.dll` foram movidas exclusivamente para o diretório `core/`.
+  - A raiz da versão portátil agora fica estritamente limpa contendo apenas o executável `freenamp.exe` e as pastas `core/`, `bin/` e `cache/`.
+- **Eliminação Definitiva do Script Batch (`iniciar_freenamp.bat`)**:
+  - Criado um inicializador nativo C++ Win32 (`freenamp.exe` launcher) que registra dinamicamente o caminho de busca de DLLs via `SetDllDirectoryW("core")`.
+  - O usuário executa `freenamp.exe` diretamente com duplo clique: nenhuma janela de prompt de comando (CMD) é aberta e o processo é identificado como `freenamp.exe` no Gerenciador de Tarefas.
+- **Janela Modal de URL (`InputModal`) Aprimorada**:
+  - Largura expandida de 360px para 480px com caixa de entrada de 450px.
+  - Implementada janela deslizante de texto e máscara de corte por hardware (`SDL_RenderSetClipRect`): links longos do YouTube não vazam da caixa e o cursor piscante no final da URL permanece sempre visível.
+- **Truncamento de Nomes Longos na Playlist (`PlaylistView`)**:
+  - Os títulos das faixas na lista agora são limitados dinamicamente (~25-30 caracteres) respeitando a distância da coluna de duração.
+  - Títulos extensos recebem sufixo `..` (ex: `1. Bohemian Rhapsody -..`), impedindo que o texto se sobreponha à minutagem (`03:45`) e mantendo a lista perfeitamente legível.
+
 
