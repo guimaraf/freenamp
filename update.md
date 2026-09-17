@@ -218,4 +218,27 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
     - **Tamanho Máximo**: `1024 x 720` px (impede expansão excessiva e vazia em monitores de alta resolução).
   - Em eventos de redimensionamento (`SDL_WINDOWEVENT_RESIZED`), todas as janelas internas têm suas coordenadas e tamanhos re-validados e ajustados automaticamente para dentro dos novos limites.
 
+---
+
+## 15. Portabilidade 100% Standalone: Vinculação Estática dos Runtimes MinGW (libgcc, libstdc++, winpthread)
+
+- **Diagnóstico da Falha em Sistemas Limpos**:
+  - Em máquinas Windows virgens (sem toolchains de desenvolvimento ou MinGW no `PATH`), a execução de `freenamp.exe` falhava com caixas de diálogo do Windows PE Loader: `libstdc++-6.dll não foi encontrado` e `libgcc_s_seh-1.dll não foi encontrado`.
+  - **Causa Raiz 1 (Launcher)**: O executável `freenamp.exe` utilizava classes C++ (`std::wstring`) em `launcher.cpp` e era compilado com vinculação dinâmica padrão do GCC, gerando entradas na tabela de importação PE para `libstdc++-6.dll` e `libgcc_s_seh-1.dll`. Como o PE Loader resolve importações antes de executar qualquer linha de código (inclusive antes de `WinMain` e `SetDllDirectoryW("core")`), a aplicação era abortada imediatamente pelo sistema operacional.
+  - **Causa Raiz 2 (Core Library)**: `libfreenamp_core.dll` possuía dependências dinâmicas diretas de `libstdc++-6.dll`, `libgcc_s_seh-1.dll` e `libwinpthread-1.dll`.
+- **Resolução Técnica Aplicada**:
+  - **Launcher 100% C Nativo (`launcher.c`)**:
+    - Reescrevemos o launcher em C puro com chamadas nativas da Win32 API (`wsprintfW`, `wcsrchr`, `wcscpy_s`, `SetDllDirectoryW`, `LoadLibraryW`).
+    - Configurado no CMake com `-static -static-libgcc` e dependências exclusivas em `kernel32` e `user32`.
+    - O `freenamp.exe` agora possui dependências exclusivas de DLLs do próprio sistema operacional Windows (`KERNEL32.dll`, `USER32.dll` e UCRT nativo).
+  - **Vinculação Estática Completa do `freenamp_core`**:
+    - Adicionadas as flags de linkedição `-static-libgcc`, `-static-libstdc++`, `-Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic`.
+    - Todo o código de runtime C++, exceções e threads foi incorporado estaticamente dentro da própria DLL `libfreenamp_core.dll`.
+    - Removido recurso `.rc` duplicado de `freenamp_core` para evitar conflito de versão com arquivos de arquivo estático.
+  - **Auditoria de Importações PE (objdump)**:
+    - `freenamp.exe`: Apenas `KERNEL32.dll`, `USER32.dll` e UCRT.
+    - `core/libfreenamp_core.dll`: Apenas `KERNEL32.dll`, `USER32.dll`, `SDL2.dll`, `libmpv-2.dll` e UCRT.
+    - Zero dependências de DLLs de compilador ou pacotes externos instalados no SO.
+
+
 

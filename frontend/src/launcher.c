@@ -1,6 +1,6 @@
-#define WIN32_LEAN_AND_MEAN
+﻿#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <string>
+#include <wchar.h>
 
 typedef int (*FreenampRunFn)(int argc, char* argv[]);
 
@@ -8,23 +8,36 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wchar_t exePath[MAX_PATH];
     if (GetModuleFileNameW(NULL, exePath, MAX_PATH) == 0) return 1;
 
-    std::wstring path(exePath);
-    size_t lastSlash = path.find_last_of(L"\\/");
-    std::wstring rootDir = (lastSlash != std::wstring::npos) ? path.substr(0, lastSlash) : L".";
-    std::wstring coreDir = rootDir + L"\\core";
+    wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+    if (!lastSlash) {
+        lastSlash = wcsrchr(exePath, L'/');
+    }
+    if (lastSlash) {
+        *lastSlash = L'\0';
+    } else {
+        wcscpy(exePath, L".");
+    }
 
-    // Set core directory as DLL search path so OS loader resolves SDL2.dll and libmpv-2.dll from core/
-    SetDllDirectoryW(coreDir.c_str());
+    wchar_t coreDir[MAX_PATH];
+    wsprintfW(coreDir, L"%s\\core", exePath);
 
-    HMODULE hMod = LoadLibraryW((coreDir + L"\\libfreenamp_core.dll").c_str());
+    // Set core directory as DLL search path so OS loader resolves SDL2.dll, libmpv-2.dll and dependencies from core/
+    SetDllDirectoryW(coreDir);
+
+    wchar_t libPath[MAX_PATH];
+    wsprintfW(libPath, L"%s\\libfreenamp_core.dll", coreDir);
+    HMODULE hMod = LoadLibraryW(libPath);
     if (!hMod) {
-        hMod = LoadLibraryW((coreDir + L"\\freenamp_core.dll").c_str());
+        wsprintfW(libPath, L"%s\\freenamp_core.dll", coreDir);
+        hMod = LoadLibraryW(libPath);
     }
     if (!hMod) {
-        hMod = LoadLibraryW((rootDir + L"\\libfreenamp_core.dll").c_str());
+        wsprintfW(libPath, L"%s\\libfreenamp_core.dll", exePath);
+        hMod = LoadLibraryW(libPath);
     }
     if (!hMod) {
-        hMod = LoadLibraryW((rootDir + L"\\freenamp_core.dll").c_str());
+        wsprintfW(libPath, L"%s\\freenamp_core.dll", exePath);
+        hMod = LoadLibraryW(libPath);
     }
     if (!hMod) {
         MessageBoxW(NULL, L"Nao foi possivel carregar as bibliotecas em core/.\nVerifique a instalacao do Freenamp.", L"Freenamp", MB_OK | MB_ICONERROR);
