@@ -17,12 +17,30 @@ New-Item -ItemType Directory -Force -Path $distBinDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $distDir "cache") | Out-Null
 
 # Copiar executavel principal nativo (launcher) para a raiz
-Copy-Item -Force (Join-Path $buildDir "frontend/freenamp.exe") $distDir
+$freenampExe = Join-Path $buildDir "frontend/freenamp.exe"
+if (-not (Test-Path $freenampExe)) {
+    $freenampExe = Join-Path $buildDir "freenamp.exe"
+}
+Copy-Item -Force $freenampExe $distDir
 
 # Copiar DLLs para a subpasta core/
-Copy-Item -Force (Join-Path $buildDir "frontend/core/SDL2.dll") $distCoreDir
-Copy-Item -Force (Join-Path $buildDir "frontend/core/libmpv-2.dll") $distCoreDir
-Copy-Item -Force (Join-Path $buildDir "frontend/core/libfreenamp_core.dll") $distCoreDir
+$coreDll = Join-Path $buildDir "frontend/core/libfreenamp_core.dll"
+if (-not (Test-Path $coreDll)) {
+    $coreDll = Join-Path $buildDir "frontend/libfreenamp_core.dll"
+}
+Copy-Item -Force $coreDll $distCoreDir
+
+if (Test-Path (Join-Path $buildDir "frontend/core/SDL2.dll")) {
+    Copy-Item -Force (Join-Path $buildDir "frontend/core/SDL2.dll") $distCoreDir
+} elseif (Test-Path (Join-Path $rootDir "compile/libs/SDL2-2.30.12/x86_64-w64-mingw32/bin/SDL2.dll")) {
+    Copy-Item -Force (Join-Path $rootDir "compile/libs/SDL2-2.30.12/x86_64-w64-mingw32/bin/SDL2.dll") $distCoreDir
+}
+
+if (Test-Path (Join-Path $buildDir "frontend/core/libmpv-2.dll")) {
+    Copy-Item -Force (Join-Path $buildDir "frontend/core/libmpv-2.dll") $distCoreDir
+} elseif (Test-Path (Join-Path $rootDir "compile/libs/mpv/libmpv-2.dll")) {
+    Copy-Item -Force (Join-Path $rootDir "compile/libs/mpv/libmpv-2.dll") $distCoreDir
+}
 
 # Remover qualquer versao legada de bat e DLLs da raiz
 if (Test-Path (Join-Path $distDir "iniciar_freenamp.bat")) {

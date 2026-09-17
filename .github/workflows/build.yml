@@ -74,10 +74,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup MinGW Toolchain
-        uses: egor-tensin/setup-mingw@v2
+      - name: Setup MinGW (MSYS2)
+        uses: msys2/setup-msys2@v2
         with:
-          platform: x64
+          msystem: MINGW64
+          update: false
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
 
       - name: Fetch project dependencies
         shell: pwsh
@@ -85,25 +91,29 @@ jobs:
           .\compile\scripts\fetch_deps.ps1
 
       - name: Configure CMake
+        shell: msys2 {0}
         run: |
-          cmake -B build -G "MinGW Makefiles" -S . -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -G "Ninja" -S . -DCMAKE_BUILD_TYPE=Release
 
       - name: Compile
+        shell: msys2 {0}
         run: |
-          cmake --build build --config Release -j4
+          cmake --build build --config Release
 
       - name: Run Backend Tests
+        shell: msys2 {0}
         run: |
           echo "=== Executando test_yt_resolver ==="
-          .\build\backend\test_yt_resolver.exe
+          ./build/backend/test_yt_resolver.exe
           echo "=== Executando test_audio_playlist ==="
-          .\build\backend\test_audio_playlist.exe
+          ./build/backend/test_audio_playlist.exe
           echo "=== Executando test_url_flow ==="
-          .\build\backend\test_url_flow.exe
+          ./build/backend/test_url_flow.exe
 
       - name: Build Portable Package
         shell: pwsh
         run: |
+          $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
           .\compile\scripts\build_portable_release.ps1
 
       - name: Create Zip Archive

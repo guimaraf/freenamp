@@ -245,7 +245,6 @@ void AudioEngine::update_spectrum() {
     bool is_playing = (m_current_state == PlaybackState::Playing);
     double vol_scale = m_volume / 100.0;
 
-    static thread_local std::mt19937 rng(42);
     std::uniform_real_distribution<float> noise(0.7f, 1.3f);
 
     for (size_t i = 0; i < SPECTRUM_BANDS; ++i) {
@@ -253,7 +252,7 @@ void AudioEngine::update_spectrum() {
         if (is_playing) {
             // Bass bands have higher energy, mids dance with melody, highs sparkle
             float freq_factor = 1.0f - (float)i / (float)SPECTRUM_BANDS * 0.4f;
-            target = freq_factor * noise(rng) * static_cast<float>(vol_scale);
+            target = freq_factor * noise(m_rng) * static_cast<float>(vol_scale);
             if (target > 1.0f) target = 1.0f;
             if (target < 0.05f) target = 0.05f;
         }

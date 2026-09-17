@@ -11,6 +11,10 @@ target_include_directories(freenamp_backend PUBLIC
     ${COMPILE_LIBS_DIR}/mpv/include
 )
 
+set_target_properties(freenamp_backend PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+
 if(WIN32)
     target_link_libraries(freenamp_backend PUBLIC
         mpv

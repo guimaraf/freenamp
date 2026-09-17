@@ -7,6 +7,7 @@
 #include <atomic>
 #include <mutex>
 #include <chrono>
+#include <random>
 
 struct mpv_handle;
 
@@ -71,6 +72,7 @@ private:
     EqualizerDsp m_equalizer;
 
     // Spectrum simulation & smoothing
+    std::mt19937 m_rng{42};
     std::array<float, SPECTRUM_BANDS> m_spectrum_levels{};
     std::array<float, SPECTRUM_BANDS> m_spectrum_peaks{};
     std::chrono::steady_clock::time_point m_last_spectrum_time;
