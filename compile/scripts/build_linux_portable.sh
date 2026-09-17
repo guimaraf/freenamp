@@ -93,12 +93,13 @@ if [ -f "${DIST_ASSETS_DIR}/freenamp.desktop" ]; then
     cp -f "${DIST_ASSETS_DIR}/freenamp.desktop" "${DIST_DIR}/"
 fi
 
-# Opcional: copiar runtimes dinâmicos se BUNDLE_LIBS=1 estiver definido
-if [ "${BUNDLE_LIBS:-0}" = "1" ]; then
+# Copiar runtimes dinâmicos essenciais (libmpv, libSDL2) para core/ para portabilidade máxima
+if [ "${BUNDLE_LIBS:-1}" = "1" ]; then
     echo "[Freenamp] Empacotando bibliotecas dinâmicas do sistema em core/..."
     for lib in $(ldd "${DIST_CORE_DIR}/libfreenamp_core.so" | grep -E 'libmpv|libSDL2' | awk '{print $3}'); do
         if [ -f "$lib" ]; then
-            cp -f "$lib" "${DIST_CORE_DIR}/"
+            SONAME=$(basename "$lib")
+            cp -f -L "$lib" "${DIST_CORE_DIR}/${SONAME}" 2>/dev/null || cp -f "$lib" "${DIST_CORE_DIR}/"
         fi
     done
 fi
