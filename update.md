@@ -88,3 +88,14 @@ Este documento registra em detalhes todas as modificações visuais, ergonômica
 - **Remoção de Faixa via Tecla Delete**:
   - Ao selecionar qualquer item na lista de músicas da Playlist e pressionar a tecla `Delete` do teclado (`SDLK_DELETE`), a faixa é removida da fila e a lista persistida automaticamente.
 
+---
+
+## 7. Despoluição do Quadro Info e Reposicionamento do Contador da Playlist
+
+- **Quadro Info Estritamente Técnico**:
+  - Removido qualquer texto de título de música ou mensagem "Faixa Adicionada" durante a reprodução.
+  - O quadro exibe estritamente dados técnicos: taxa de bits (`160 kbps`), taxa de amostragem (`48.0 kHz`), canais (`STEREO`), codec (`Opus Audio`) e o estado direto de playback (`Reproduzindo`, `Pausado`, `Parado`).
+- **Contador de Faixas e Tempo Abaixo da Playlist**:
+  - A informação de contagem de faixas e tempo acumulado foi reposicionada para a barra de ferramentas inferior da janela, completamente fora da caixa preta da listagem, mantendo a grade de faixas 100% limpa.
+
+

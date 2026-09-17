@@ -133,10 +133,13 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
     Rect dn_r = { bx + m_btn_down.x, by + m_btn_down.y, m_btn_down.w, m_btn_down.h };
     RetroWidgets::draw_button(renderer, dn_r, "v");
 
-    // 5. Total Duration & Counts
+    // 5. Total Duration & Counts (placed BELOW the playlist box on bottom toolbar)
     std::string total_dur = backend::YtResolver::format_duration(playlist.get_total_duration());
     std::string info_text = std::to_string(total_tracks) + " faixas / " + total_dur;
-    RetroFont::draw_text(renderer, info_text, bx + 165, by + m_bounds.h - 38, Palette::TextDim, 1);
+    int info_w = static_cast<int>(info_text.size()) * 8;
+    int info_x = bx + m_btn_up.x - info_w - 6;
+    if (info_x < bx + 165) info_x = bx + 165;
+    RetroFont::draw_text(renderer, info_text, info_x, by + m_bounds.h - 21, Palette::TextDim, 1);
 
     // 6. Resize grip (///) in bottom right corner
     RetroWidgets::draw_resize_grip(renderer, bx + m_bounds.w - 3, by + m_bounds.h - 3);
