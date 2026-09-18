@@ -8,6 +8,13 @@
 
 ![Freenamp](assets/frenamp.png)
 
+> [!NOTE]
+> ### ⚖️ Legal Disclaimer / Isenção de Responsabilidade
+> 
+> **English**: Freenamp is an open-source educational and research project created to explore modular retro GUI design, digital signal processing (DSP) equalization, and media playback interoperability using C++20, SDL2, and `libmpv`. Freenamp **does not** host, archive, cache, or distribute any copyrighted audio, video, or media files. All playback and stream resolution are performed strictly on the client side at the explicit request of the end user via `yt-dlp`. Users are solely responsible for complying with applicable local copyright laws and third-party terms of service.
+> 
+> **Português**: O Freenamp é um projeto de código aberto desenvolvido estritamente para fins educacionais e de pesquisa técnica em interface gráfica retrô modular, processamento de sinal digital (DSP) e interoperabilidade multimídia em C++20, SDL2 e `libmpv`. O Freenamp **não** hospeda, armazena, distribui nem mantém em cache nenhum arquivo de áudio, vídeo ou conteúdo protegido por direitos autorais. Toda reprodução e resolução de streams ocorrem exclusivamente no lado do cliente por solicitação direta do usuário final através do `yt-dlp`. O usuário é o único responsável por assegurar a conformidade de seu uso com as leis de direitos autorais e os termos de serviço aplicáveis em sua jurisdição.
+
 ### 🚀 Download (v1.0.0)
 
 | Platform | Package | Description |
