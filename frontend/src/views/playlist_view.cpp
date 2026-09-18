@@ -195,8 +195,9 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
             auto now = std::chrono::steady_clock::now();
             auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_click_time).count();
 
-            if (clicked_track == m_last_clicked_index && elapsed_ms < 400) {
+            if (clicked_track == m_last_clicked_index && elapsed_ms < 500) {
                 // Double click -> PLAY!
+                m_selected_index = clicked_track;
                 core.play_track_index(clicked_track);
             } else {
                 // Single click -> SELECT

@@ -20,7 +20,7 @@ public:
     ~CoreController() = default;
 
     // High level actions
-    void add_url(const std::string& url_or_id, bool play_immediately = false);
+    void add_url(const std::string& url_or_id, bool play_immediately = true);
     void play_track_index(size_t index);
 
     // Transport controls
@@ -92,6 +92,7 @@ private:
     std::string m_status_message = "Ready";
     std::atomic<bool> m_is_loading = false;
     std::atomic<int> m_loading_progress{0};
+    std::atomic<uint64_t> m_current_resolve_id{0};
     int m_bitrate_kbps = 160;
     int m_samplerate_khz = 48;
     std::string m_audio_codec = "Opus Audio";

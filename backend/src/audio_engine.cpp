@@ -106,6 +106,8 @@ void AudioEngine::stop() {
     if (!m_mpv) return;
     const char* cmd[] = { "stop", nullptr };
     mpv_command(m_mpv, cmd);
+    int pause_val = 0;
+    mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pause_val);
     m_current_state = PlaybackState::Stopped;
     m_track_ended = false;
 }
@@ -180,7 +182,7 @@ PlaybackState AudioEngine::get_state() {
     }
 
     int idle_flag = 0;
-    if (mpv_get_property(m_mpv, "core-idle", MPV_FORMAT_FLAG, &idle_flag) >= 0 && idle_flag) {
+    if (mpv_get_property(m_mpv, "idle-active", MPV_FORMAT_FLAG, &idle_flag) >= 0 && idle_flag) {
         if (m_current_state != PlaybackState::Paused) {
             m_current_state = PlaybackState::Stopped;
         }

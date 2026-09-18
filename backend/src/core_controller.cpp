@@ -109,6 +109,7 @@ void CoreController::add_url(const std::string& url_or_id, bool play_immediately
             if (pl.has_value() && !pl->tracks.empty()) {
                 m_loading_progress = 85;
                 bool was_empty = m_playlist.empty();
+                size_t start_idx = m_playlist.size();
                 m_playlist.add_playlist(pl.value());
                 m_status_message = "Playlist adicionada: " + std::to_string(pl->tracks.size()) + " faixas";
                 notify_event("playlist_updated");
@@ -118,7 +119,7 @@ void CoreController::add_url(const std::string& url_or_id, bool play_immediately
                 notify_event("loading_end");
 
                 if (play_immediately || was_empty) {
-                    play_track_index(m_playlist.get_current_index() < 0 ? 0 : m_playlist.get_current_index());
+                    play_track_index(start_idx);
                 }
                 save_session();
                 return;
@@ -170,25 +171,31 @@ void CoreController::play_current_playlist_track() {
         m_audio.load_url(track.stream_url, true);
         notify_event("track_changed");
     } else {
-        if (m_is_loading.exchange(true)) {
-            return; // Já existe uma resolução em andamento
-        }
+        uint64_t req_id = ++m_current_resolve_id;
+        m_is_loading = true;
         m_loading_progress = 25;
-        m_status_message = "Renovando stream de audio...";
+        m_status_message = "Carregando stream de audio...";
         notify_event("track_loading");
 
-        m_resolver.remove_from_cache(track.id);
+        if (!track.stream_url.empty() && YtResolver::is_stream_url_expired(track.stream_url)) {
+            m_resolver.remove_from_cache(track.id);
+        }
 
-        std::thread([this, track_id = track.id, idx = m_playlist.get_current_index()]() {
+        std::thread([this, track_id = track.id, idx = m_playlist.get_current_index(), req_id]() {
             m_loading_progress = 50;
             auto stream_url = m_resolver.resolve_stream_url(track_id);
+
+            if (m_current_resolve_id != req_id) {
+                return; // Requisicao substituida ou cancelada
+            }
+
             if (stream_url.has_value() && !stream_url->empty()) {
                 m_loading_progress = 85;
                 if (idx >= 0) {
                     m_playlist.set_track_stream_url(static_cast<size_t>(idx), stream_url.value());
                 }
-                // Verify we are still on the same index
-                if (m_playlist.get_current_index() == idx) {
+                // Verify we are still on the same index and same request
+                if (m_playlist.get_current_index() == idx && m_current_resolve_id == req_id) {
                     auto tr = m_playlist.get_track(idx);
                     m_status_message = tr ? ("Tocando: " + tr->title) : "Reproduzindo";
                     m_loading_progress = 100;
@@ -196,11 +203,15 @@ void CoreController::play_current_playlist_track() {
                     notify_event("track_changed");
                 }
             } else {
-                m_status_message = "Erro ao reproduzir stream";
-                m_loading_progress = 0;
+                if (m_current_resolve_id == req_id) {
+                    m_status_message = "Erro ao reproduzir stream";
+                    m_loading_progress = 0;
+                }
             }
-            m_is_loading = false;
-            notify_event("loading_end");
+            if (m_current_resolve_id == req_id) {
+                m_is_loading = false;
+                notify_event("loading_end");
+            }
         }).detach();
     }
 }
@@ -235,6 +246,8 @@ void CoreController::toggle_pause() {
 
 void CoreController::stop() {
     m_audio.stop();
+    m_is_loading = false;
+    m_current_resolve_id++;
     m_status_message = "Parado";
     notify_event("playback_stopped");
 }

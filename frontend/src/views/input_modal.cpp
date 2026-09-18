@@ -97,7 +97,7 @@ bool InputModal::handle_mouse_down(int mx, int my, backend::CoreController& core
     if (ok_r.contains(mx, my)) {
         std::string clean = backend::YtResolver::sanitize_url(m_input_text);
         if (!clean.empty()) {
-            core.add_url(clean, false);
+            core.add_url(clean, true);
             m_input_text.clear();
         }
         close();
@@ -130,7 +130,7 @@ void InputModal::handle_key_down(SDL_Keycode key, backend::CoreController& core)
     if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
         std::string clean = backend::YtResolver::sanitize_url(m_input_text);
         if (!clean.empty()) {
-            core.add_url(clean, false);
+            core.add_url(clean, true);
             m_input_text.clear();
         }
         close();
