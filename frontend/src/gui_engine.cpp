@@ -104,11 +104,16 @@ bool GuiEngine::init() {
     }
 
     SDL_StartTextInput();
+    m_system_media_keys = create_system_media_keys();
     m_running = true;
     return true;
 }
 
 void GuiEngine::shutdown() {
+    if (m_system_media_keys) {
+        m_system_media_keys->shutdown();
+        m_system_media_keys.reset();
+    }
     if (m_renderer) {
         SDL_DestroyRenderer(m_renderer);
         m_renderer = nullptr;
@@ -421,13 +426,29 @@ void GuiEngine::run(backend::CoreController& core) {
     core.load_session();
     load_window_layout();
 
+    if (m_system_media_keys) {
+        m_system_media_keys->init(m_window, core);
+    }
+
     int cur_idx = core.get_playlist().get_current_index();
     if (cur_idx >= 0) {
         m_playlist_view.set_selected_index(cur_idx);
         m_playlist_view.ensure_visible(cur_idx, static_cast<int>(core.get_playlist().size()));
     }
 
-    core.set_event_callback([this, &core](const std::string& event_name) {
+    auto sync_media_keys = [this, &core]() {
+        if (m_system_media_keys) {
+            auto tr = core.get_playlist().get_current_track();
+            std::string title = tr ? tr->title : core.get_current_title();
+            std::string artist = tr ? tr->uploader : "";
+            int dur = tr ? tr->duration_seconds : static_cast<int>(core.get_duration());
+            m_system_media_keys->update_metadata(title, artist, dur, core.get_state());
+        }
+    };
+
+    sync_media_keys();
+
+    core.set_event_callback([this, &core, sync_media_keys](const std::string& event_name) {
         if (event_name == "track_changed") {
             int idx = core.get_playlist().get_current_index();
             if (idx >= 0) {
@@ -435,11 +456,15 @@ void GuiEngine::run(backend::CoreController& core) {
                 m_playlist_view.ensure_visible(idx, static_cast<int>(core.get_playlist().size()));
             }
         }
+        sync_media_keys();
     });
 
     while (m_running) {
         process_events(core);
         core.update();
+        if (m_system_media_keys) {
+            m_system_media_keys->update();
+        }
         render(core);
         SDL_Delay(16); // Cap at ~60 FPS
     }

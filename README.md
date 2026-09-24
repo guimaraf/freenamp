@@ -15,14 +15,14 @@
 > 
 > **Português**: O Freenamp é um projeto de código aberto desenvolvido estritamente para fins educacionais e de pesquisa técnica em interface gráfica retrô modular, processamento de sinal digital (DSP) e interoperabilidade multimídia em C++20, SDL2 e `libmpv`. O Freenamp **não** hospeda, armazena, distribui nem mantém em cache nenhum arquivo de áudio, vídeo ou conteúdo protegido por direitos autorais. Toda reprodução e resolução de streams ocorrem exclusivamente no lado do cliente por solicitação direta do usuário final através do `yt-dlp`. O usuário é o único responsável por assegurar a conformidade de seu uso com as leis de direitos autorais e os termos de serviço aplicáveis em sua jurisdição.
 
-### 🚀 Download (v1.0.0)
+### 🚀 Download (v1.0.2)
 
 | Platform | Package | Description |
 | :--- | :--- | :--- |
-| **Linux (x86_64)** | [freenamp-linux-x86_64.tar.gz](https://github.com/guimaraf/freenamp/releases/download/v1.0.0/freenamp-linux-x86_64.tar.gz) | 100% portable bundle with bundled libraries & `iniciar_freenamp.sh` launcher |
-| **Linux (x86_64)** | [Freenamp-x86_64.AppImage](https://github.com/guimaraf/freenamp/releases/download/v1.0.0/Freenamp-x86_64.AppImage) | Standalone single-file AppImage executable |
-| **Windows (x64)** | [freenamp-windows-x64.zip](https://github.com/guimaraf/freenamp/releases/download/v1.0.0/freenamp-windows-x64.zip) | Standalone portable bundle with isolated DLLs in `core/` |
-| **Checksums** | [SHA256SUMS.txt](https://github.com/guimaraf/freenamp/releases/download/v1.0.0/SHA256SUMS.txt) | Cryptographic verification |
+| **Linux (x86_64)** | [freenamp-linux-x86_64.tar.gz](https://github.com/guimaraf/freenamp/releases/download/v1.0.2/freenamp-linux-x86_64.tar.gz) | 100% portable bundle with bundled libraries & `iniciar_freenamp.sh` launcher |
+| **Linux (x86_64)** | [Freenamp-x86_64.AppImage](https://github.com/guimaraf/freenamp/releases/download/v1.0.2/Freenamp-x86_64.AppImage) | Standalone single-file AppImage executable |
+| **Windows (x64)** | [freenamp-windows-x64.zip](https://github.com/guimaraf/freenamp/releases/download/v1.0.2/freenamp-windows-x64.zip) | Standalone portable bundle with isolated DLLs in `core/` |
+| **Checksums** | [SHA256SUMS.txt](https://github.com/guimaraf/freenamp/releases/download/v1.0.2/SHA256SUMS.txt) | Cryptographic verification |
 
 ---
 
@@ -39,6 +39,7 @@
   - **Info Unit**: Real-time stream technical metrics (`160 kbps`, `48.0 kHz`, `STEREO`, `Opus Audio`) and segmented LED loading progress indicators.
   - **10-Band Equalizer**: Interactive sliders with preamp gain adjustment and 10 frequency bands (60 Hz to 16 kHz).
   - **Scalable Playlist**: Freely resizable via the bottom-right drag grip (`///`), continuous drag-to-scroll, track reordering (`^`/`v`), and clean metadata display with total duration and track count.
+- **Global Multimedia Keys in Background**: Full playback control (Play/Pause, Next, Prev, Stop) even when minimized or unfocused via Win32 `RegisterHotKey` on Windows and MPRIS v2 D-Bus on Linux.
 - **Magnetic Window Docking**: Subwindows magnetically attract and snap together or to screen borders. Moving the main unit moves docked child windows together.
 - **YouTube Playlists & Mixes**: Seamlessly resolves single videos, full playlists, and YouTube radio mixes up to 50 tracks.
 - **Smart Token & CDN Expiration Renewal**: Automatically parses YouTube CDN expiration tokens (`expire=<timestamp>`). Expired streams are re-resolved transparently on-demand without user intervention.
@@ -49,6 +50,10 @@
 
 | Shortcut | Description |
 | :--- | :--- |
+| <kbd>Media Play/Pause</kbd> | Toggle Play / Pause (Global / Minimized) |
+| <kbd>Media Next</kbd> | Next track (Global / Minimized) |
+| <kbd>Media Prev</kbd> | Previous track (Global / Minimized) |
+| <kbd>Media Stop</kbd> | Stop playback (Global / Minimized) |
 | <kbd>Space</kbd> | Toggle Play / Pause |
 | <kbd>X</kbd> | Play |
 | <kbd>C</kbd> | Pause |
@@ -102,6 +107,7 @@ O **Freenamp** une a estética icônica retrô dos reprodutores de mídia cláss
   - **Quadro Info**: Exibição técnica das características do áudio (`160 kbps`, `48.0 kHz`, `STEREO`, `Opus Audio`) e barra segmentada de progresso em LED durante o carregamento de URLs.
   - **Equalizador de 10 Bandas**: Sliders verticais independentes de 60 Hz a 16 kHz com controle de ganho pré-amplificador (Preamp) e botão Flat.
   - **Playlist Escalonável**: Redimensionamento livre pelo canto inferior direito (`///`), rolagem fluida por arrasto na barra, reordenação de faixas (`^`/`v`) e rodapé limpo com total de faixas e duração acumulada.
+- **Teclas Multimídia Globais em Segundo Plano**: Controle total de reprodução (Play/Pause, Próxima, Anterior, Stop) com a janela minimizada ou em segundo plano via `RegisterHotKey` no Windows e MPRIS v2 D-Bus no Linux.
 - **Acoplamento Magnético (Window Docking)**: As janelas internas se atraem e se encaixam magneticamente entre si e nas bordas do aplicativo. Ao mover o painel principal, as janelas acopladas movem-se juntas.
 - **Playlists e Mixes do YouTube**: Suporte completo a links de vídeos únicos, playlists convencionais e mixes automáticos gerados pelo YouTube (até 50 faixas).
 - **Renovação Automática de Links Expirados**: Analisa o parâmetro criptográfico `expire=` da CDN do Google. Se o link expirar de um dia para o outro, o Freenamp renova o stream em segundo plano automaticamente ao dar Play, sem exigir recarregamentos manuais.
@@ -112,6 +118,7 @@ O **Freenamp** une a estética icônica retrô dos reprodutores de mídia cláss
 
 | Atalho | Ação |
 | :--- | :--- |
+| <kbd>Teclas Multimídia</kbd> | Play/Pause, Próxima, Anterior e Parar globais (em segundo plano ou minimizado) |
 | <kbd>Espaço</kbd> | Alternar Reproduzir / Pausar |
 | <kbd>X</kbd> | Tocar (Play) |
 | <kbd>C</kbd> | Pausar (Pause) |

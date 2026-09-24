@@ -1,8 +1,15 @@
+if(WIN32)
+    set(SYSTEM_MEDIA_KEYS_SRC src/system_media_keys_win.cpp)
+else()
+    set(SYSTEM_MEDIA_KEYS_SRC src/system_media_keys_linux.cpp)
+endif()
+
 set(FRONTEND_COMMON_SRCS
     src/retro_font.cpp
     src/retro_widgets.cpp
     src/window_dock.cpp
     src/gui_engine.cpp
+    ${SYSTEM_MEDIA_KEYS_SRC}
     src/views/main_view.cpp
     src/views/info_view.cpp
     src/views/eq_view.cpp
@@ -95,6 +102,7 @@ elseif(UNIX AND NOT APPLE)
         ${FREENAMP_SDL2_LIB}
         ${MPV_LIBRARIES}
         pthread
+        ${CMAKE_DL_LIBS}
     )
 
     set_target_properties(freenamp_core PROPERTIES
@@ -119,6 +127,7 @@ elseif(UNIX AND NOT APPLE)
         freenamp_backend
         ${FREENAMP_SDL2_LIB}
         pthread
+        ${CMAKE_DL_LIBS}
     )
 
     set_target_properties(freenamp PROPERTIES

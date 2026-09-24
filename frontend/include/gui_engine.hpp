@@ -7,6 +7,7 @@
 #include "views/playlist_view.hpp"
 #include "views/input_modal.hpp"
 #include "window_dock.hpp"
+#include "system_media_keys.hpp"
 #include <SDL.h>
 #include <memory>
 
@@ -37,6 +38,8 @@ private:
     EqView m_eq_view{ 20, 214 };
     PlaylistView m_playlist_view{ 305, 20, 355, 310 };
     InputModal m_input_modal;
+
+    std::unique_ptr<ISystemMediaKeys> m_system_media_keys;
 
     void process_events(backend::CoreController& core);
     void render(backend::CoreController& core);
