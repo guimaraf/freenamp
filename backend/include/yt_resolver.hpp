@@ -70,6 +70,15 @@ public:
     const std::string& get_ytdlp_path() const { return m_ytdlp_path; }
     void set_ytdlp_path(const std::string& path) { m_ytdlp_path = path; }
 
+    // Version & update checking
+    static std::string get_compiled_version();
+    static std::string get_compiled_hash();
+    std::string get_local_version() const;
+    std::string fetch_remote_latest_version(bool master_channel = false) const;
+    static bool is_version_newer(const std::string& candidate, const std::string& baseline);
+    bool check_for_update() const;
+    bool update_ytdlp_binary();
+
 private:
     std::string m_ytdlp_path;
 

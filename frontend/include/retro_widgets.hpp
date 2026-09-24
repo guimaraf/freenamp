@@ -13,6 +13,9 @@ public:
     // Window panel with chiseled borders and title bar
     static void draw_window_panel(SDL_Renderer* renderer, const Rect& rect, const std::string& title, bool show_close = false);
 
+    // Subtle 9x9 beveled badge on the right side of a panel title bar (e.g. "U" for update)
+    static void draw_title_badge(SDL_Renderer* renderer, const Rect& rect, const std::string& letter);
+
     // 3D beveled button with text or symbol
     static void draw_button(SDL_Renderer* renderer, const Rect& rect, const std::string& label, bool pressed = false, bool active = false);
 

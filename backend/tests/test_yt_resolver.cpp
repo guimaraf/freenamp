@@ -47,6 +47,27 @@ void test_stream_url_expiration() {
     std::cout << "  -> Verificacao de expiracao de URL passou com sucesso!\n\n";
 }
 
+void test_version_checking(YtResolver& resolver) {
+    std::cout << "[TEST] 2.2 Testando comparacao de versoes e hash compilado do yt-dlp...\n";
+    assert(YtResolver::is_version_newer("2026.09.20", "2026.09.16"));
+    assert(!YtResolver::is_version_newer("2026.09.16", "2026.09.16"));
+    assert(!YtResolver::is_version_newer("2026.08.19", "2026.09.16.074918"));
+    assert(YtResolver::is_version_newer("2026.09.16.232951", "2026.09.16.074918"));
+
+    std::string compiled_ver = YtResolver::get_compiled_version();
+    std::string compiled_hash = YtResolver::get_compiled_hash();
+    std::string local_ver = resolver.get_local_version();
+
+    std::cout << "  -> Versao compilada: " << compiled_ver << "\n";
+    std::cout << "  -> Hash compilado:   " << compiled_hash << "\n";
+    std::cout << "  -> Versao local:     " << local_ver << "\n";
+
+    assert(!compiled_ver.empty());
+    assert(!compiled_hash.empty());
+    assert(!local_ver.empty());
+    std::cout << "  -> Verificacao de versao/hash passou com sucesso!\n\n";
+}
+
 void test_live_resolution(YtResolver& resolver) {
     std::cout << "[TEST] 3. Testando resolucao real de video do YouTube (jNQXAC9IVRw - 'Me at the zoo')...\n";
 
@@ -106,6 +127,7 @@ int main() {
 #endif
     std::cout << "[INFO] Caminho do yt-dlp: " << resolver.get_ytdlp_path() << "\n\n";
 
+    test_version_checking(resolver);
     test_live_resolution(resolver);
 
     std::cout << "[TEST] 5. Testando resolucao de playlist plana...\n";

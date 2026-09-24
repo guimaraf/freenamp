@@ -25,6 +25,9 @@ public:
     bool is_time_remaining_mode() const { return m_time_remaining_mode; }
     void set_time_remaining_mode(bool remaining) { m_time_remaining_mode = remaining; }
 
+    bool is_update_available() const { return m_update_available; }
+    void set_update_available(bool available) { m_update_available = available; }
+
     bool is_dragging_window() const { return m_dragging_window; }
     int get_drag_offset_x() const { return m_drag_off_x; }
     int get_drag_offset_y() const { return m_drag_off_y; }
@@ -52,6 +55,7 @@ private:
     Rect m_slider_pan{ 177, 56, 38, 10 };
 
     bool m_time_remaining_mode = false;
+    bool m_update_available = false;
 
     // Drag states
     bool m_dragging_window = false;

@@ -20,6 +20,7 @@ if(WIN32)
         mpv
         ws2_32
         ole32
+        wininet
     )
 
     # Copy libmpv-2.dll to binary dir

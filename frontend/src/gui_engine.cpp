@@ -427,6 +427,7 @@ void GuiEngine::render(backend::CoreController& core) {
 void GuiEngine::run(backend::CoreController& core) {
     core.load_session();
     load_window_layout();
+    core.check_ytdlp_update_once();
 
     if (m_system_media_keys) {
         m_system_media_keys->init(m_window, core);

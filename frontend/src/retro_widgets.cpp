@@ -56,6 +56,13 @@ void RetroWidgets::draw_window_panel(SDL_Renderer* renderer, const Rect& rect, c
     }
 }
 
+void RetroWidgets::draw_title_badge(SDL_Renderer* renderer, const Rect& rect, const std::string& letter) {
+    int cx = rect.x + rect.w - 14;
+    int cy = rect.y + 5;
+    draw_bevel(renderer, cx, cy, 9, 9, Palette::ButtonHi, Palette::ButtonLo);
+    RetroFont::draw_text(renderer, letter, cx + 1, cy + 1, Palette::TitleText, 1);
+}
+
 void RetroWidgets::draw_recessed_box(SDL_Renderer* renderer, const Rect& rect) {
     fill_rect(renderer, rect.x, rect.y, rect.w, rect.h, Palette::DisplayBg);
     draw_bevel(renderer, rect.x, rect.y, rect.w, rect.h, Palette::PanelBorderLo, Palette::PanelBorderHi);

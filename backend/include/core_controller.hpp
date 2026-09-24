@@ -75,6 +75,12 @@ public:
     AudioEngine& get_audio() { return m_audio; }
     YtResolver& get_resolver() { return m_resolver; }
 
+    // yt-dlp update check (once at startup)
+    void check_ytdlp_update_once();
+    bool is_ytdlp_update_available() const { return m_ytdlp_update_available.load(); }
+    void set_ytdlp_update_available(bool avail) { m_ytdlp_update_available.store(avail); }
+    void trigger_ytdlp_update();
+
     // Periodic tick to be called from the main loop (~60 FPS)
     // Handles gapless pre-fetching, track advancement, and status
     void update();
@@ -93,6 +99,8 @@ private:
     std::atomic<bool> m_is_loading = false;
     std::atomic<int> m_loading_progress{0};
     std::atomic<uint64_t> m_current_resolve_id{0};
+    std::atomic<bool> m_ytdlp_update_available{false};
+    std::atomic<bool> m_ytdlp_update_checked{false};
     int m_bitrate_kbps = 160;
     int m_samplerate_khz = 48;
     std::string m_audio_codec = "Opus Audio";

@@ -11,6 +11,35 @@ set(COMPILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/compile")
 set(COMPILE_LIBS_DIR "${COMPILE_DIR}/libs")
 set(COMPILE_BIN_DIR "${COMPILE_DIR}/bin")
 
+# Capture yt-dlp version and SHA256 hash at compile time
+if(WIN32 AND EXISTS "${COMPILE_BIN_DIR}/yt-dlp.exe")
+    set(YTDLP_BIN_FOR_HASH "${COMPILE_BIN_DIR}/yt-dlp.exe")
+elseif(EXISTS "${COMPILE_BIN_DIR}/yt-dlp")
+    set(YTDLP_BIN_FOR_HASH "${COMPILE_BIN_DIR}/yt-dlp")
+endif()
+
+if(DEFINED YTDLP_BIN_FOR_HASH AND EXISTS "${YTDLP_BIN_FOR_HASH}")
+    file(SHA256 "${YTDLP_BIN_FOR_HASH}" YTDLP_COMPILED_HASH)
+    execute_process(
+        COMMAND "${YTDLP_BIN_FOR_HASH}" --version
+        OUTPUT_VARIABLE YTDLP_COMPILED_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT YTDLP_COMPILED_VERSION)
+        set(YTDLP_COMPILED_VERSION "0000.00.00")
+    endif()
+else()
+    set(YTDLP_COMPILED_HASH "unknown")
+    set(YTDLP_COMPILED_VERSION "0000.00.00")
+endif()
+
+message(STATUS "[Freenamp] Compiled yt-dlp version: ${YTDLP_COMPILED_VERSION} (SHA256: ${YTDLP_COMPILED_HASH})")
+add_compile_definitions(
+    YTDLP_COMPILED_HASH="${YTDLP_COMPILED_HASH}"
+    YTDLP_COMPILED_VERSION="${YTDLP_COMPILED_VERSION}"
+)
+
 # Global includes
 include_directories(
     "${CMAKE_CURRENT_SOURCE_DIR}/backend/include"

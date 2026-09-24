@@ -10,8 +10,11 @@ MainView::MainView(int x, int y) {
 }
 
 void MainView::render(SDL_Renderer* renderer, backend::CoreController& core) {
-    // 1. Window Frame & Title Bar
-    RetroWidgets::draw_window_panel(renderer, m_bounds, "FREENAMP", true);
+    // 1. Window Frame & Title Bar (Main panel never closes; shows static "U" badge if yt-dlp update is available)
+    RetroWidgets::draw_window_panel(renderer, m_bounds, "FREENAMP", false);
+    if (m_update_available || core.is_ytdlp_update_available()) {
+        RetroWidgets::draw_title_badge(renderer, m_bounds, "U");
+    }
 
     int bx = m_bounds.x;
     int by = m_bounds.y;
@@ -110,13 +113,11 @@ bool MainView::handle_mouse_down(int mx, int my, backend::CoreController& core, 
     int bx = m_bounds.x;
     int by = m_bounds.y;
 
-    // Check title bar for window dragging
+    // Check title bar for window dragging or "U" update badge click
     if (my >= by && my <= by + 16) {
-        // Close button check
-        if (mx >= bx + m_bounds.w - 15) {
-            SDL_Event quit_ev;
-            quit_ev.type = SDL_QUIT;
-            SDL_PushEvent(&quit_ev);
+        if ((m_update_available || core.is_ytdlp_update_available()) && mx >= bx + m_bounds.w - 15) {
+            m_update_available = false;
+            core.trigger_ytdlp_update();
             return true;
         }
         m_dragging_window = true;

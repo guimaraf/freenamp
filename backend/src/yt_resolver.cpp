@@ -14,9 +14,18 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <wininet.h>
 #else
 #include <cstdio>
 #include <unistd.h>
+#endif
+
+#ifndef YTDLP_COMPILED_VERSION
+#define YTDLP_COMPILED_VERSION "0000.00.00"
+#endif
+
+#ifndef YTDLP_COMPILED_HASH
+#define YTDLP_COMPILED_HASH "unknown"
 #endif
 
 namespace freenamp::backend {
@@ -718,4 +727,154 @@ bool YtResolver::load_cache_from_file(const std::string& filepath) {
     }
 }
 
+std::string YtResolver::get_compiled_version() {
+    return std::string(YTDLP_COMPILED_VERSION);
+}
+
+std::string YtResolver::get_compiled_hash() {
+    return std::string(YTDLP_COMPILED_HASH);
+}
+
+std::string YtResolver::get_local_version() const {
+    std::string cmd = build_command_line({"--version"});
+    std::string out = execute_command(cmd);
+    std::istringstream iss(out);
+    std::string first_line;
+    if (std::getline(iss, first_line)) {
+        return trim(first_line);
+    }
+    return "";
+}
+
+bool YtResolver::is_version_newer(const std::string& candidate, const std::string& baseline) {
+    auto parse_parts = [](const std::string& ver) -> std::vector<long long> {
+        std::vector<long long> parts;
+        std::string s = trim(ver);
+        if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) {
+            s = s.substr(1);
+        }
+        std::istringstream ss(s);
+        std::string token;
+        while (std::getline(ss, token, '.')) {
+            if (token.empty()) break;
+            try {
+                parts.push_back(std::stoll(token));
+            } catch (...) {
+                break;
+            }
+        }
+        return parts;
+    };
+
+    auto cand_parts = parse_parts(candidate);
+    auto base_parts = parse_parts(baseline);
+    if (cand_parts.size() < 3 || base_parts.size() < 3) {
+        return false;
+    }
+
+    while (cand_parts.size() < 4) cand_parts.push_back(0);
+    while (base_parts.size() < 4) base_parts.push_back(0);
+
+    for (size_t i = 0; i < 4; ++i) {
+        if (cand_parts[i] > base_parts[i]) return true;
+        if (cand_parts[i] < base_parts[i]) return false;
+    }
+    return false;
+}
+
+std::string YtResolver::fetch_remote_latest_version(bool master_channel) const {
+    const char* api_url = master_channel
+        ? "https://api.github.com/repos/yt-dlp/yt-dlp-master-builds/releases/latest"
+        : "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest";
+
+    std::string raw_response;
+
+#ifdef _WIN32
+    HINTERNET hInternet = InternetOpenA("Freenamp/1.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    if (hInternet) {
+        DWORD timeout_ms = 5000;
+        InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout_ms, sizeof(timeout_ms));
+        InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout_ms, sizeof(timeout_ms));
+
+        const char* headers = "Accept: application/vnd.github+json\r\nUser-Agent: Freenamp/1.0\r\n";
+        HINTERNET hConnect = InternetOpenUrlA(
+            hInternet,
+            api_url,
+            headers,
+            static_cast<DWORD>(-1L),
+            INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE,
+            0
+        );
+
+        if (hConnect) {
+            char buffer[4096];
+            DWORD bytesRead = 0;
+            while (InternetReadFile(hConnect, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0) {
+                raw_response.append(buffer, bytesRead);
+                if (raw_response.size() > 65536) break; // Safety cap
+            }
+            InternetCloseHandle(hConnect);
+        }
+        InternetCloseHandle(hInternet);
+    }
+#else
+    std::string curl_cmd = std::string("curl -sL --max-time 5 -A \"Freenamp/1.0\" \"") + api_url + "\"";
+    raw_response = execute_command(curl_cmd);
+#endif
+
+    if (raw_response.empty()) return "";
+
+    try {
+        json j = json::parse(raw_response);
+        if (j.contains("tag_name") && j["tag_name"].is_string()) {
+            return trim(j["tag_name"].get<std::string>());
+        }
+    } catch (...) {}
+
+    return "";
+}
+
+bool YtResolver::check_for_update() const {
+    std::string compiled_ver = get_compiled_version();
+    std::string local_ver = get_local_version();
+
+    // Determine effective baseline version (compiled version or local binary version)
+    std::string baseline = compiled_ver;
+    if (baseline.empty() || baseline == "0000.00.00") {
+        baseline = local_ver;
+    } else if (!local_ver.empty() && is_version_newer(local_ver, baseline)) {
+        baseline = local_ver;
+    }
+
+    if (baseline.empty() || baseline == "0000.00.00") {
+        return false;
+    }
+
+    // Count dots: 3 dots (YYYY.MM.DD.HHMMSS) = master/nightly channel, 2 dots (YYYY.MM.DD) = stable channel
+    size_t dot_count = std::count(baseline.begin(), baseline.end(), '.');
+    bool is_master_channel = (dot_count >= 3);
+
+    std::string remote_ver = fetch_remote_latest_version(is_master_channel);
+    if (!remote_ver.empty() && is_version_newer(remote_ver, baseline)) {
+        return true;
+    }
+
+    // If on master channel, also check stable release just in case
+    if (is_master_channel) {
+        std::string stable_ver = fetch_remote_latest_version(false);
+        if (!stable_ver.empty() && is_version_newer(stable_ver, baseline)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool YtResolver::update_ytdlp_binary() {
+    std::string cmd = build_command_line({"-U"});
+    std::string out = execute_command(cmd);
+    return !out.empty();
+}
+
 } // namespace freenamp::backend
+

@@ -38,6 +38,8 @@ void CoreController::save_session() {
         settings["shuffle"] = is_shuffle();
         settings["repeat"] = static_cast<int>(get_repeat());
         settings["selected_index"] = m_playlist.get_current_index();
+        settings["ytdlp_compiled_version"] = YtResolver::get_compiled_version();
+        settings["ytdlp_compiled_hash"] = YtResolver::get_compiled_hash();
 
         std::ofstream ofs("cache/settings.json");
         if (ofs.is_open()) {
@@ -412,4 +414,39 @@ void CoreController::update() {
     }
 }
 
+void CoreController::check_ytdlp_update_once() {
+    if (m_ytdlp_update_checked.exchange(true)) {
+        return; // Guarantee strictly 1 check per session
+    }
+
+    std::thread([this]() {
+        try {
+            bool has_update = m_resolver.check_for_update();
+            if (has_update) {
+                m_ytdlp_update_available.store(true);
+            }
+        } catch (...) {}
+    }).detach();
+}
+
+void CoreController::trigger_ytdlp_update() {
+    if (!m_ytdlp_update_available.load()) return;
+    m_ytdlp_update_available.store(false);
+    m_status_message = "Atualizando yt-dlp...";
+
+    std::thread([this]() {
+        try {
+            bool ok = m_resolver.update_ytdlp_binary();
+            if (ok) {
+                m_status_message = "yt-dlp atualizado!";
+            } else {
+                m_status_message = "Pronto";
+            }
+        } catch (...) {
+            m_status_message = "Pronto";
+        }
+    }).detach();
+}
+
 } // namespace freenamp::backend
+
