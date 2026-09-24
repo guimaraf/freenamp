@@ -1,8 +1,12 @@
-﻿#define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <wchar.h>
 
 typedef int (*FreenampRunFn)(int argc, char* argv[]);
+
+// Native compatibility exclusion for RivaTuner Statistics Server (RTSS)
+// Tells RTSSHooks64.dll / RTSSHooks.dll not to hook this process
+__declspec(dllexport) DWORD RTSSHooksCompatibility = 0x00000000;
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     wchar_t exePath[MAX_PATH];

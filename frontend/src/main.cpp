@@ -31,8 +31,14 @@ int main_app(int argc, char* argv[]) {
 }
 
 #if defined(_WIN32)
-extern "C" __declspec(dllexport) int freenamp_run(int argc, char* argv[]) {
-    return main_app(argc, argv);
+// Native compatibility exclusion for RivaTuner Statistics Server (RTSS)
+// Tells RTSSHooks64.dll / RTSSHooks.dll not to hook this process
+extern "C" {
+    __declspec(dllexport) unsigned long RTSSHooksCompatibility = 0x00000000;
+
+    __declspec(dllexport) int freenamp_run(int argc, char* argv[]) {
+        return main_app(argc, argv);
+    }
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
