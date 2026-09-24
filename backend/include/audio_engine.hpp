@@ -51,6 +51,8 @@ public:
     double get_position();
     double get_duration();
     bool is_track_finished();
+    bool has_playback_error() const;
+    void clear_playback_error();
 
     // Equalizer
     EqualizerDsp& get_equalizer() { return m_equalizer; }
@@ -68,6 +70,7 @@ private:
     double m_volume = 100.0;
     double m_pan = 0.0;
     bool m_track_ended = false;
+    bool m_playback_error = false;
 
     EqualizerDsp m_equalizer;
 

@@ -156,14 +156,17 @@ void CoreController::add_url(const std::string& url_or_id, bool play_immediately
     }).detach();
 }
 
-void CoreController::play_current_playlist_track() {
+void CoreController::play_current_playlist_track(bool force_re_resolve) {
     auto current = m_playlist.get_current_track();
     if (!current.has_value()) return;
 
     auto track = current.value();
     m_current_title = track.title;
 
-    bool url_valid = track.is_resolved && !track.stream_url.empty() && !YtResolver::is_stream_url_expired(track.stream_url);
+    bool url_valid = !force_re_resolve &&
+                     track.is_resolved &&
+                     !track.stream_url.empty() &&
+                     !YtResolver::is_stream_url_expired(track.stream_url);
 
     if (url_valid) {
         m_status_message = "Tocando: " + track.title;
@@ -174,16 +177,19 @@ void CoreController::play_current_playlist_track() {
         uint64_t req_id = ++m_current_resolve_id;
         m_is_loading = true;
         m_loading_progress = 25;
-        m_status_message = "Carregando stream de audio...";
+        m_status_message = force_re_resolve ? "Renovando link de áudio..." : "Carregando stream de audio...";
         notify_event("track_loading");
 
-        if (!track.stream_url.empty() && YtResolver::is_stream_url_expired(track.stream_url)) {
-            m_resolver.remove_from_cache(track.id);
+        m_resolver.remove_from_cache(track.id);
+        if (!track.original_url.empty()) {
+            m_resolver.remove_from_cache(track.original_url);
         }
 
-        std::thread([this, track_id = track.id, idx = m_playlist.get_current_index(), req_id]() {
+        std::string resolve_target = !track.original_url.empty() ? track.original_url : track.id;
+
+        std::thread([this, target = resolve_target, idx = m_playlist.get_current_index(), req_id]() {
             m_loading_progress = 50;
-            auto stream_url = m_resolver.resolve_stream_url(track_id);
+            auto stream_url = m_resolver.resolve_stream_url(target);
 
             if (m_current_resolve_id != req_id) {
                 return; // Requisicao substituida ou cancelada
@@ -217,6 +223,7 @@ void CoreController::play_current_playlist_track() {
 }
 
 void CoreController::play_track_index(size_t index) {
+    m_track_retry_count = 0;
     if (m_playlist.set_current_index(static_cast<int>(index))) {
         play_current_playlist_track();
     }
@@ -248,11 +255,13 @@ void CoreController::stop() {
     m_audio.stop();
     m_is_loading = false;
     m_current_resolve_id++;
+    m_track_retry_count = 0;
     m_status_message = "Parado";
     notify_event("playback_stopped");
 }
 
 void CoreController::next() {
+    m_track_retry_count = 0;
     auto next_tr = m_playlist.next();
     if (next_tr.has_value()) {
         play_current_playlist_track();
@@ -262,6 +271,7 @@ void CoreController::next() {
 }
 
 void CoreController::previous() {
+    m_track_retry_count = 0;
     auto prev_tr = m_playlist.previous();
     if (prev_tr.has_value()) {
         play_current_playlist_track();
@@ -351,10 +361,44 @@ std::array<float, AudioEngine::SPECTRUM_BANDS> CoreController::get_spectrum_band
     return m_audio.get_spectrum_bands();
 }
 
+void CoreController::handle_playback_error() {
+    auto current = m_playlist.get_current_track();
+    if (!current.has_value()) return;
+
+    if (m_track_retry_count < 1) {
+        m_track_retry_count++;
+        std::cerr << "[CoreController] URL expirada ou inválida ao tocar (" << current->title
+                  << "). Invalidando cache e re-resolvendo link fresco...\n";
+        m_resolver.remove_from_cache(current->id);
+        if (!current->original_url.empty()) {
+            m_resolver.remove_from_cache(current->original_url);
+        }
+        int cur_idx = m_playlist.get_current_index();
+        if (cur_idx >= 0) {
+            m_playlist.set_track_stream_url(static_cast<size_t>(cur_idx), "");
+        }
+        play_current_playlist_track(true);
+    } else {
+        std::cerr << "[CoreController] Falha permanente ao carregar faixa (" << current->title << ").\n";
+        m_track_retry_count = 0;
+        m_status_message = "Erro ao reproduzir faixa";
+        m_is_loading = false;
+        m_loading_progress = 0;
+        notify_event("playback_stopped");
+    }
+}
+
 void CoreController::update() {
+    if (m_audio.has_playback_error()) {
+        m_audio.clear_playback_error();
+        handle_playback_error();
+        return;
+    }
+
     PlaybackState state = m_audio.get_state();
 
     if (state == PlaybackState::Playing) {
+        m_track_retry_count = 0;
         double pos = m_audio.get_position();
         double dur = m_audio.get_duration();
 

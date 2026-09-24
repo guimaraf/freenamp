@@ -100,7 +100,9 @@ private:
     EventCallback m_event_cb;
 
     void notify_event(const std::string& event_name);
-    void play_current_playlist_track();
+    void play_current_playlist_track(bool force_re_resolve = false);
+    void handle_playback_error();
+    int m_track_retry_count = 0;
 };
 
 } // namespace freenamp::backend

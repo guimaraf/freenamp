@@ -276,13 +276,23 @@ std::string YtResolver::execute_command(const std::string& cmd_line) const {
         return "";
     }
 
+    HANDLE hChildStd_ERR = CreateFileW(
+        L"NUL",
+        GENERIC_WRITE,
+        FILE_SHARE_WRITE,
+        &saAttr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+
     PROCESS_INFORMATION piProcInfo;
     STARTUPINFOW siStartInfo;
     ZeroMemory(&piProcInfo, sizeof(PROCESS_INFORMATION));
     ZeroMemory(&siStartInfo, sizeof(STARTUPINFOW));
 
     siStartInfo.cb = sizeof(STARTUPINFOW);
-    siStartInfo.hStdError = hChildStd_OUT_Wr;
+    siStartInfo.hStdError = (hChildStd_ERR != INVALID_HANDLE_VALUE) ? hChildStd_ERR : NULL;
     siStartInfo.hStdOutput = hChildStd_OUT_Wr;
     siStartInfo.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     siStartInfo.wShowWindow = SW_HIDE;
@@ -306,6 +316,9 @@ std::string YtResolver::execute_command(const std::string& cmd_line) const {
 
     // Close the write handle in parent so ReadFile hits EOF when child exits
     CloseHandle(hChildStd_OUT_Wr);
+    if (hChildStd_ERR != INVALID_HANDLE_VALUE && hChildStd_ERR != NULL) {
+        CloseHandle(hChildStd_ERR);
+    }
 
     if (!bSuccess) {
         CloseHandle(hChildStd_OUT_Rd);
@@ -331,7 +344,7 @@ std::string YtResolver::execute_command(const std::string& cmd_line) const {
 #else
     // POSIX fallback
     std::array<char, 4096> buffer;
-    std::string safe_cmd = cmd_line + " 2>&1";
+    std::string safe_cmd = cmd_line + " 2>/dev/null";
     FILE* pipe = popen(safe_cmd.c_str(), "r");
     if (!pipe) return "";
 
@@ -370,7 +383,7 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
 
     if (fetch_stream_url) {
         args.push_back("-f");
-        args.push_back("bestaudio[ext=opus]/bestaudio[ext=m4a]/bestaudio");
+        args.push_back("ba/b");
     }
 
     args.push_back(clean_url);
@@ -380,6 +393,15 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
 
     if (raw_json.empty()) {
         return std::nullopt;
+    }
+
+    // Isolate pure JSON string between first '{' and last '}'
+    size_t first_brace = raw_json.find('{');
+    if (first_brace != std::string::npos) {
+        size_t last_brace = raw_json.rfind('}');
+        if (last_brace != std::string::npos && last_brace >= first_brace) {
+            raw_json = raw_json.substr(first_brace, last_brace - first_brace + 1);
+        }
     }
 
     try {
@@ -427,21 +449,39 @@ std::optional<std::string> YtResolver::resolve_stream_url(const std::string& vid
         }
     }
 
+    std::string target_url = clean_url;
+    // Canonicalize 11-char video ID to full URL for optimal yt-dlp extractor resolution
+    if (clean_url.find("http://") != 0 && clean_url.find("https://") != 0 && clean_url.length() == 11) {
+        target_url = "https://www.youtube.com/watch?v=" + clean_url;
+    }
+
     std::vector<std::string> args = {
-        "-f", "bestaudio[ext=opus]/bestaudio[ext=m4a]/bestaudio",
+        "-f", "ba/b",
         "-g",
         "--no-playlist",
         "--no-warnings",
-        clean_url
+        target_url
     };
 
     std::string cmd = build_command_line(args);
-    std::string output = trim(execute_command(cmd));
+    std::string output = execute_command(cmd);
 
-    if (output.find("http://") == 0 || output.find("https://") == 0) {
+    std::istringstream iss(output);
+    std::string line;
+    std::string stream_url;
+    while (std::getline(iss, line)) {
+        line = trim(line);
+        if (line.rfind("http://", 0) == 0 || line.rfind("https://", 0) == 0) {
+            stream_url = line;
+            break;
+        }
+    }
+
+    if (!stream_url.empty()) {
         std::lock_guard<std::mutex> lock(m_cache_mutex);
-        m_stream_url_cache[clean_url] = output;
-        return output;
+        m_stream_url_cache[clean_url] = stream_url;
+        m_stream_url_cache[target_url] = stream_url;
+        return stream_url;
     }
 
     return std::nullopt;
@@ -465,6 +505,15 @@ std::optional<PlaylistMetadata> YtResolver::resolve_playlist(const std::string& 
 
     if (raw_json.empty()) {
         return std::nullopt;
+    }
+
+    // Isolate pure JSON string between first '{' and last '}'
+    size_t first_brace = raw_json.find('{');
+    if (first_brace != std::string::npos) {
+        size_t last_brace = raw_json.rfind('}');
+        if (last_brace != std::string::npos && last_brace >= first_brace) {
+            raw_json = raw_json.substr(first_brace, last_brace - first_brace + 1);
+        }
     }
 
     try {

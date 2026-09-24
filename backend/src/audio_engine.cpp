@@ -59,6 +59,7 @@ bool AudioEngine::load_url(const std::string& stream_url, bool autoplay) {
     if (!m_mpv || stream_url.empty()) return false;
 
     m_track_ended = false;
+    m_playback_error = false;
 
     const char* cmd[] = { "loadfile", stream_url.c_str(), "replace", nullptr };
     int err = mpv_command(m_mpv, cmd);
@@ -110,6 +111,7 @@ void AudioEngine::stop() {
     mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pause_val);
     m_current_state = PlaybackState::Stopped;
     m_track_ended = false;
+    m_playback_error = false;
 }
 
 void AudioEngine::seek(double seconds_absolute) {
@@ -170,11 +172,18 @@ PlaybackState AudioEngine::get_state() {
 
         if (event->event_id == MPV_EVENT_END_FILE) {
             auto* end_data = static_cast<mpv_event_end_file*>(event->data);
-            if (end_data && end_data->reason == MPV_END_FILE_REASON_EOF) {
-                if (m_current_state == PlaybackState::Playing) {
-                    m_track_ended = true;
+            if (end_data) {
+                if (end_data->reason == MPV_END_FILE_REASON_EOF) {
+                    if (m_current_state == PlaybackState::Playing) {
+                        m_track_ended = true;
+                    }
+                    m_current_state = PlaybackState::Stopped;
+                } else if (end_data->reason == MPV_END_FILE_REASON_ERROR) {
+                    std::cerr << "[AudioEngine] Erro ao carregar stream no mpv (motivo: "
+                              << mpv_error_string(end_data->error) << ")\n";
+                    m_playback_error = true;
+                    m_current_state = PlaybackState::Stopped;
                 }
-                m_current_state = PlaybackState::Stopped;
             }
         } else if (event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
             m_current_state = PlaybackState::Playing;
@@ -196,6 +205,16 @@ PlaybackState AudioEngine::get_state() {
     }
 
     return m_current_state;
+}
+
+bool AudioEngine::has_playback_error() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_playback_error;
+}
+
+void AudioEngine::clear_playback_error() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_playback_error = false;
 }
 
 double AudioEngine::get_position() {
