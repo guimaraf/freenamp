@@ -48,7 +48,7 @@ bool GuiEngine::init() {
     m_height = std::clamp(m_height, MIN_WIN_H, MAX_WIN_H);
 
     m_window = SDL_CreateWindow(
-        "Freenamp - YouTube Retro Audio Player",
+        "Freenamp",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         m_width,

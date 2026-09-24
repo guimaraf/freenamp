@@ -19,6 +19,7 @@ if(WIN32)
     target_link_libraries(freenamp_backend PUBLIC
         mpv
         ws2_32
+        ole32
     )
 
     # Copy libmpv-2.dll to binary dir

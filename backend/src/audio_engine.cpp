@@ -6,6 +6,57 @@
 #include <random>
 #include <algorithm>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <mmdeviceapi.h>
+#include <audiopolicy.h>
+
+namespace {
+void enforce_windows_mixer_display_name(const wchar_t* name) {
+    HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    IMMDeviceEnumerator* pEnumerator = nullptr;
+    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+                          __uuidof(IMMDeviceEnumerator), (void**)&pEnumerator);
+    if (SUCCEEDED(hr) && pEnumerator) {
+        IMMDevice* pDevice = nullptr;
+        hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, &pDevice);
+        if (SUCCEEDED(hr) && pDevice) {
+            IAudioSessionManager2* pSessionManager = nullptr;
+            hr = pDevice->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, NULL, (void**)&pSessionManager);
+            if (SUCCEEDED(hr) && pSessionManager) {
+                IAudioSessionEnumerator* pSessionList = nullptr;
+                hr = pSessionManager->GetSessionEnumerator(&pSessionList);
+                if (SUCCEEDED(hr) && pSessionList) {
+                    int count = 0;
+                    pSessionList->GetCount(&count);
+                    DWORD current_pid = GetCurrentProcessId();
+                    for (int i = 0; i < count; ++i) {
+                        IAudioSessionControl* pSession = nullptr;
+                        if (SUCCEEDED(pSessionList->GetSession(i, &pSession)) && pSession) {
+                            IAudioSessionControl2* pSession2 = nullptr;
+                            if (SUCCEEDED(pSession->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&pSession2)) && pSession2) {
+                                DWORD pid = 0;
+                                if (SUCCEEDED(pSession2->GetProcessId(&pid)) && pid == current_pid) {
+                                    pSession2->SetDisplayName(name, NULL);
+                                }
+                                pSession2->Release();
+                            }
+                            pSession->Release();
+                        }
+                    }
+                    pSessionList->Release();
+                }
+                pSessionManager->Release();
+            }
+            pDevice->Release();
+        }
+        pEnumerator->Release();
+    }
+}
+} // namespace
+#endif
+
 namespace freenamp::backend {
 
 AudioEngine::AudioEngine() {
@@ -34,6 +85,8 @@ void AudioEngine::init_mpv() {
     mpv_set_option_string(m_mpv, "video", "no");
     mpv_set_option_string(m_mpv, "audio-display", "no");
     mpv_set_option_string(m_mpv, "audio-client-name", "Freenamp");
+    mpv_set_option_string(m_mpv, "title", "Freenamp");
+    mpv_set_option_string(m_mpv, "force-media-title", "Freenamp");
 
     // Network resilience & caching buffers
     mpv_set_option_string(m_mpv, "demuxer-max-bytes", "33554432"); // 32MB buffer
@@ -61,6 +114,9 @@ bool AudioEngine::load_url(const std::string& stream_url, bool autoplay) {
     m_track_ended = false;
     m_playback_error = false;
 
+    mpv_set_property_string(m_mpv, "force-media-title", "Freenamp");
+    mpv_set_property_string(m_mpv, "title", "Freenamp");
+
     const char* cmd[] = { "loadfile", stream_url.c_str(), "replace", nullptr };
     int err = mpv_command(m_mpv, cmd);
     if (err < 0) {
@@ -68,6 +124,13 @@ bool AudioEngine::load_url(const std::string& stream_url, bool autoplay) {
         m_current_state = PlaybackState::Stopped;
         return false;
     }
+
+    mpv_set_property_string(m_mpv, "force-media-title", "Freenamp");
+    mpv_set_property_string(m_mpv, "title", "Freenamp");
+
+#ifdef _WIN32
+    enforce_windows_mixer_display_name(L"Freenamp");
+#endif
 
     int pause_val = autoplay ? 0 : 1;
     mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pause_val);
@@ -84,6 +147,9 @@ void AudioEngine::play() {
     int pause_val = 0;
     mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pause_val);
     m_current_state = PlaybackState::Playing;
+#ifdef _WIN32
+    enforce_windows_mixer_display_name(L"Freenamp");
+#endif
 }
 
 void AudioEngine::pause() {
@@ -187,6 +253,9 @@ PlaybackState AudioEngine::get_state() {
             }
         } else if (event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
             m_current_state = PlaybackState::Playing;
+#ifdef _WIN32
+            enforce_windows_mixer_display_name(L"Freenamp");
+#endif
         }
     }
 

@@ -16,9 +16,9 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName", "Freenamp"
-            VALUE "FileDescription", "Freenamp - Retro YouTube Audio Player"
+            VALUE "FileDescription", "Freenamp"
             VALUE "FileVersion", "1.0.2.0"
-            VALUE "InternalName", "freenamp"
+            VALUE "InternalName", "Freenamp"
             VALUE "LegalCopyright", "Open Source"
             VALUE "OriginalFilename", "freenamp.exe"
             VALUE "ProductName", "Freenamp"
