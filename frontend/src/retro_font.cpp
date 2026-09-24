@@ -122,15 +122,229 @@ const uint8_t SEVEN_SEG_DIGITS[10] = {
     0b01101111  // 9: A,B,C,D,F,G
 };
 
+// Extended Latin-1 accented 8x8 glyph bitmaps
+// Uppercase
+const uint8_t GLYPH_A_ACUTE[8] = {0x0c, 0x38, 0x6c, 0xc6, 0xfe, 0xc6, 0xc6, 0x00}; // Á
+const uint8_t GLYPH_A_GRAVE[8] = {0x18, 0x38, 0x6c, 0xc6, 0xfe, 0xc6, 0xc6, 0x00}; // À
+const uint8_t GLYPH_A_CIRC[8]  = {0x10, 0x38, 0x6c, 0xc6, 0xfe, 0xc6, 0xc6, 0x00}; // Â
+const uint8_t GLYPH_A_TILDE[8] = {0x34, 0x38, 0x6c, 0xc6, 0xfe, 0xc6, 0xc6, 0x00}; // Ã
+const uint8_t GLYPH_A_UML[8]   = {0x24, 0x38, 0x6c, 0xc6, 0xfe, 0xc6, 0xc6, 0x00}; // Ä
+const uint8_t GLYPH_C_CEDIL[8] = {0x3c, 0x66, 0xc0, 0xc0, 0xc0, 0x66, 0x3c, 0x18}; // Ç
+const uint8_t GLYPH_E_ACUTE[8] = {0x0c, 0xfe, 0x62, 0x78, 0x68, 0x62, 0xfe, 0x00}; // É
+const uint8_t GLYPH_E_GRAVE[8] = {0x18, 0xfe, 0x62, 0x78, 0x68, 0x62, 0xfe, 0x00}; // È
+const uint8_t GLYPH_E_CIRC[8]  = {0x10, 0xfe, 0x62, 0x78, 0x68, 0x62, 0xfe, 0x00}; // Ê
+const uint8_t GLYPH_E_UML[8]   = {0x24, 0xfe, 0x62, 0x78, 0x68, 0x62, 0xfe, 0x00}; // Ë
+const uint8_t GLYPH_I_ACUTE[8] = {0x0c, 0x3c, 0x18, 0x18, 0x18, 0x18, 0x3c, 0x00}; // Í
+const uint8_t GLYPH_I_GRAVE[8] = {0x18, 0x3c, 0x18, 0x18, 0x18, 0x18, 0x3c, 0x00}; // Ì
+const uint8_t GLYPH_I_CIRC[8]  = {0x10, 0x3c, 0x18, 0x18, 0x18, 0x18, 0x3c, 0x00}; // Î
+const uint8_t GLYPH_I_UML[8]   = {0x24, 0x3c, 0x18, 0x18, 0x18, 0x18, 0x3c, 0x00}; // Ï
+const uint8_t GLYPH_N_TILDE[8] = {0x34, 0xc6, 0xe6, 0xde, 0xce, 0xc6, 0xc6, 0x00}; // Ñ
+const uint8_t GLYPH_O_ACUTE[8] = {0x0c, 0x7c, 0xc6, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // Ó
+const uint8_t GLYPH_O_GRAVE[8] = {0x18, 0x7c, 0xc6, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // Ò
+const uint8_t GLYPH_O_CIRC[8]  = {0x10, 0x7c, 0xc6, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // Ô
+const uint8_t GLYPH_O_TILDE[8] = {0x34, 0x7c, 0xc6, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // Õ
+const uint8_t GLYPH_O_UML[8]   = {0x24, 0x7c, 0xc6, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // Ö
+const uint8_t GLYPH_U_ACUTE[8] = {0x0c, 0xc6, 0xc6, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // Ú
+const uint8_t GLYPH_U_GRAVE[8] = {0x18, 0xc6, 0xc6, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // Ù
+const uint8_t GLYPH_U_CIRC[8]  = {0x10, 0xc6, 0xc6, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // Û
+const uint8_t GLYPH_U_UML[8]   = {0x24, 0xc6, 0xc6, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // Ü
+
+// Lowercase
+const uint8_t GLYPH_a_ACUTE[8] = {0x0c, 0x18, 0x78, 0x0c, 0x7c, 0xcc, 0x76, 0x00}; // á
+const uint8_t GLYPH_a_GRAVE[8] = {0x18, 0x0c, 0x78, 0x0c, 0x7c, 0xcc, 0x76, 0x00}; // à
+const uint8_t GLYPH_a_CIRC[8]  = {0x10, 0x28, 0x78, 0x0c, 0x7c, 0xcc, 0x76, 0x00}; // â
+const uint8_t GLYPH_a_TILDE[8] = {0x34, 0x4c, 0x78, 0x0c, 0x7c, 0xcc, 0x76, 0x00}; // ã
+const uint8_t GLYPH_a_UML[8]   = {0x24, 0x24, 0x78, 0x0c, 0x7c, 0xcc, 0x76, 0x00}; // ä
+const uint8_t GLYPH_c_CEDIL[8] = {0x00, 0x00, 0x7c, 0xc6, 0xc0, 0xc6, 0x7c, 0x18}; // ç
+const uint8_t GLYPH_e_ACUTE[8] = {0x0c, 0x18, 0x7c, 0xc6, 0xfe, 0xc0, 0x7c, 0x00}; // é
+const uint8_t GLYPH_e_GRAVE[8] = {0x18, 0x0c, 0x7c, 0xc6, 0xfe, 0xc0, 0x7c, 0x00}; // è
+const uint8_t GLYPH_e_CIRC[8]  = {0x10, 0x28, 0x7c, 0xc6, 0xfe, 0xc0, 0x7c, 0x00}; // ê
+const uint8_t GLYPH_e_UML[8]   = {0x24, 0x24, 0x7c, 0xc6, 0xfe, 0xc0, 0x7c, 0x00}; // ë
+const uint8_t GLYPH_i_ACUTE[8] = {0x0c, 0x18, 0x38, 0x18, 0x18, 0x18, 0x3c, 0x00}; // í
+const uint8_t GLYPH_i_GRAVE[8] = {0x18, 0x0c, 0x38, 0x18, 0x18, 0x18, 0x3c, 0x00}; // ì
+const uint8_t GLYPH_i_CIRC[8]  = {0x10, 0x28, 0x38, 0x18, 0x18, 0x18, 0x3c, 0x00}; // î
+const uint8_t GLYPH_i_UML[8]   = {0x24, 0x00, 0x38, 0x18, 0x18, 0x18, 0x3c, 0x00}; // ï
+const uint8_t GLYPH_n_TILDE[8] = {0x34, 0x4c, 0xdc, 0x66, 0x66, 0x66, 0x66, 0x00}; // ñ
+const uint8_t GLYPH_o_ACUTE[8] = {0x0c, 0x18, 0x7c, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // ó
+const uint8_t GLYPH_o_GRAVE[8] = {0x18, 0x0c, 0x7c, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // ò
+const uint8_t GLYPH_o_CIRC[8]  = {0x10, 0x28, 0x7c, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // ô
+const uint8_t GLYPH_o_TILDE[8] = {0x34, 0x4c, 0x7c, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // õ
+const uint8_t GLYPH_o_UML[8]   = {0x24, 0x24, 0x7c, 0xc6, 0xc6, 0xc6, 0x7c, 0x00}; // ö
+const uint8_t GLYPH_u_ACUTE[8] = {0x0c, 0x18, 0xcc, 0xcc, 0xcc, 0xcc, 0x76, 0x00}; // ú
+const uint8_t GLYPH_u_GRAVE[8] = {0x18, 0x0c, 0xcc, 0xcc, 0xcc, 0xcc, 0x76, 0x00}; // ù
+const uint8_t GLYPH_u_CIRC[8]  = {0x10, 0x28, 0xcc, 0xcc, 0xcc, 0xcc, 0x76, 0x00}; // û
+const uint8_t GLYPH_u_UML[8]   = {0x24, 0x24, 0xcc, 0xcc, 0xcc, 0xcc, 0x76, 0x00}; // ü
+const uint8_t GLYPH_ORD_M[8]   = {0x38, 0x44, 0x38, 0x00, 0x7c, 0x00, 0x00, 0x00}; // º
+const uint8_t GLYPH_ORD_F[8]   = {0x30, 0x48, 0x78, 0x48, 0x78, 0x00, 0x7c, 0x00}; // ª
+
+const uint8_t* get_glyph_bitmap(uint32_t cp) {
+    if (cp >= 32 && cp <= 126) {
+        return FONT_8X8[cp - 32];
+    }
+
+    switch (cp) {
+        // Uppercase
+        case 0x00C0: return GLYPH_A_GRAVE;
+        case 0x00C1: return GLYPH_A_ACUTE;
+        case 0x00C2: return GLYPH_A_CIRC;
+        case 0x00C3: return GLYPH_A_TILDE;
+        case 0x00C4: return GLYPH_A_UML;
+        case 0x00C7: return GLYPH_C_CEDIL;
+        case 0x00C8: return GLYPH_E_GRAVE;
+        case 0x00C9: return GLYPH_E_ACUTE;
+        case 0x00CA: return GLYPH_E_CIRC;
+        case 0x00CB: return GLYPH_E_UML;
+        case 0x00CC: return GLYPH_I_GRAVE;
+        case 0x00CD: return GLYPH_I_ACUTE;
+        case 0x00CE: return GLYPH_I_CIRC;
+        case 0x00CF: return GLYPH_I_UML;
+        case 0x00D1: return GLYPH_N_TILDE;
+        case 0x00D2: return GLYPH_O_GRAVE;
+        case 0x00D3: return GLYPH_O_ACUTE;
+        case 0x00D4: return GLYPH_O_CIRC;
+        case 0x00D5: return GLYPH_O_TILDE;
+        case 0x00D6: return GLYPH_O_UML;
+        case 0x00D9: return GLYPH_U_GRAVE;
+        case 0x00DA: return GLYPH_U_ACUTE;
+        case 0x00DB: return GLYPH_U_CIRC;
+        case 0x00DC: return GLYPH_U_UML;
+
+        // Lowercase
+        case 0x00E0: return GLYPH_a_GRAVE;
+        case 0x00E1: return GLYPH_a_ACUTE;
+        case 0x00E2: return GLYPH_a_CIRC;
+        case 0x00E3: return GLYPH_a_TILDE;
+        case 0x00E4: return GLYPH_a_UML;
+        case 0x00E7: return GLYPH_c_CEDIL;
+        case 0x00E8: return GLYPH_e_GRAVE;
+        case 0x00E9: return GLYPH_e_ACUTE;
+        case 0x00EA: return GLYPH_e_CIRC;
+        case 0x00EB: return GLYPH_e_UML;
+        case 0x00EC: return GLYPH_i_GRAVE;
+        case 0x00ED: return GLYPH_i_ACUTE;
+        case 0x00EE: return GLYPH_i_CIRC;
+        case 0x00EF: return GLYPH_i_UML;
+        case 0x00F1: return GLYPH_n_TILDE;
+        case 0x00F2: return GLYPH_o_GRAVE;
+        case 0x00F3: return GLYPH_o_ACUTE;
+        case 0x00F4: return GLYPH_o_CIRC;
+        case 0x00F5: return GLYPH_o_TILDE;
+        case 0x00F6: return GLYPH_o_UML;
+        case 0x00F9: return GLYPH_u_GRAVE;
+        case 0x00FA: return GLYPH_u_ACUTE;
+        case 0x00FB: return GLYPH_u_CIRC;
+        case 0x00FC: return GLYPH_u_UML;
+
+        // Ordinals & typographic quotes
+        case 0x00BA: return GLYPH_ORD_M;
+        case 0x00AA: return GLYPH_ORD_F;
+        case 0x2018:
+        case 0x2019: return FONT_8X8['\'' - 32];
+        case 0x201C:
+        case 0x201D: return FONT_8X8['"' - 32];
+        case 0x2013:
+        case 0x2014: return FONT_8X8['-' - 32];
+        case 0x2026: return FONT_8X8['.' - 32];
+
+        default: break;
+    }
+
+    // Fallback transliteration for unmapped Latin/European characters
+    if (cp >= 0x00C0 && cp <= 0x00C5) return FONT_8X8['A' - 32];
+    if (cp == 0x00C6) return FONT_8X8['A' - 32];
+    if (cp == 0x00C7) return FONT_8X8['C' - 32];
+    if (cp >= 0x00C8 && cp <= 0x00CB) return FONT_8X8['E' - 32];
+    if (cp >= 0x00CC && cp <= 0x00CF) return FONT_8X8['I' - 32];
+    if (cp == 0x00D0) return FONT_8X8['D' - 32];
+    if (cp == 0x00D1) return FONT_8X8['N' - 32];
+    if (cp >= 0x00D2 && cp <= 0x00D6) return FONT_8X8['O' - 32];
+    if (cp == 0x00D8) return FONT_8X8['O' - 32];
+    if (cp >= 0x00D9 && cp <= 0x00DC) return FONT_8X8['U' - 32];
+    if (cp == 0x00DD) return FONT_8X8['Y' - 32];
+
+    if (cp >= 0x00E0 && cp <= 0x00E5) return FONT_8X8['a' - 32];
+    if (cp == 0x00E6) return FONT_8X8['a' - 32];
+    if (cp == 0x00E7) return FONT_8X8['c' - 32];
+    if (cp >= 0x00E8 && cp <= 0x00EB) return FONT_8X8['e' - 32];
+    if (cp >= 0x00EC && cp <= 0x00EF) return FONT_8X8['i' - 32];
+    if (cp == 0x00F0) return FONT_8X8['d' - 32];
+    if (cp == 0x00F1) return FONT_8X8['n' - 32];
+    if (cp >= 0x00F2 && cp <= 0x00F6) return FONT_8X8['o' - 32];
+    if (cp == 0x00F8) return FONT_8X8['o' - 32];
+    if (cp >= 0x00F9 && cp <= 0x00FC) return FONT_8X8['u' - 32];
+    if (cp == 0x00FD || cp == 0x00FF) return FONT_8X8['y' - 32];
+
+    return FONT_8X8['?' - 32];
+}
+
 } // namespace
 
-void RetroFont::draw_glyph(SDL_Renderer* renderer, char c, int x, int y, Color color, int scale) {
-    if (c < 32 || c > 126) c = '?';
-    int index = c - 32;
+uint32_t RetroFont::decode_utf8(const std::string& text, size_t& i) {
+    if (i >= text.size()) return 0;
+    uint8_t c0 = static_cast<uint8_t>(text[i]);
+    if (c0 < 0x80) {
+        i += 1;
+        return c0;
+    } else if ((c0 & 0xE0) == 0xC0) {
+        if (i + 1 < text.size()) {
+            uint8_t c1 = static_cast<uint8_t>(text[i + 1]);
+            if ((c1 & 0xC0) == 0x80) {
+                i += 2;
+                return ((c0 & 0x1F) << 6) | (c1 & 0x3F);
+            }
+        }
+    } else if ((c0 & 0xF0) == 0xE0) {
+        if (i + 2 < text.size()) {
+            uint8_t c1 = static_cast<uint8_t>(text[i + 1]);
+            uint8_t c2 = static_cast<uint8_t>(text[i + 2]);
+            if ((c1 & 0xC0) == 0x80 && (c2 & 0xC0) == 0x80) {
+                i += 3;
+                return ((c0 & 0x0F) << 12) | ((c1 & 0x3F) << 6) | (c2 & 0x3F);
+            }
+        }
+    } else if ((c0 & 0xF8) == 0xF0) {
+        if (i + 3 < text.size()) {
+            uint8_t c1 = static_cast<uint8_t>(text[i + 1]);
+            uint8_t c2 = static_cast<uint8_t>(text[i + 2]);
+            uint8_t c3 = static_cast<uint8_t>(text[i + 3]);
+            if ((c1 & 0xC0) == 0x80 && (c2 & 0xC0) == 0x80 && (c3 & 0xC0) == 0x80) {
+                i += 4;
+                return ((c0 & 0x07) << 18) | ((c1 & 0x3F) << 12) | ((c2 & 0x3F) << 6) | (c3 & 0x3F);
+            }
+        }
+    }
+    // Fallback on corrupt byte
+    i += 1;
+    return c0;
+}
+
+size_t RetroFont::utf8_length(const std::string& text) {
+    size_t count = 0;
+    size_t i = 0;
+    while (i < text.size()) {
+        decode_utf8(text, i);
+        count++;
+    }
+    return count;
+}
+
+std::string RetroFont::utf8_substr(const std::string& text, size_t max_glyphs) {
+    size_t glyph_count = 0;
+    size_t i = 0;
+    while (i < text.size() && glyph_count < max_glyphs) {
+        decode_utf8(text, i);
+        glyph_count++;
+    }
+    return text.substr(0, i);
+}
+
+void RetroFont::draw_glyph(SDL_Renderer* renderer, uint32_t codepoint, int x, int y, Color color, int scale) {
+    const uint8_t* bitmap = get_glyph_bitmap(codepoint);
+    if (!bitmap) return;
 
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
     for (int row = 0; row < 8; ++row) {
-        uint8_t byte = FONT_8X8[index][row];
+        uint8_t byte = bitmap[row];
         for (int col = 0; col < 8; ++col) {
             if (byte & (0x80 >> col)) {
                 if (scale == 1) {
@@ -147,13 +361,15 @@ void RetroFont::draw_glyph(SDL_Renderer* renderer, char c, int x, int y, Color c
 void RetroFont::draw_text(SDL_Renderer* renderer, const std::string& text, int x, int y, Color color, int scale) {
     int cur_x = x;
     int advance = 8 * scale;
-    for (char c : text) {
-        if (c == '\n') {
+    size_t i = 0;
+    while (i < text.size()) {
+        uint32_t cp = decode_utf8(text, i);
+        if (cp == '\n') {
             y += 9 * scale;
             cur_x = x;
             continue;
         }
-        draw_glyph(renderer, c, cur_x, y, color, scale);
+        draw_glyph(renderer, cp, cur_x, y, color, scale);
         cur_x += advance;
     }
 }
@@ -164,7 +380,7 @@ void RetroFont::draw_marquee_text(SDL_Renderer* renderer, const std::string& tex
     SDL_Rect clip = { x, y, max_w, 10 };
     SDL_RenderSetClipRect(renderer, &clip);
 
-    int text_pixel_w = static_cast<int>(text.size()) * 8;
+    int text_pixel_w = static_cast<int>(utf8_length(text)) * 8;
     int cur_x = x;
 
     if (text_pixel_w > max_w) {

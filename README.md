@@ -35,18 +35,19 @@
 ### Key Features
 
 - **Modular Retro Interface**:
-  - **Main Unit**: Classic green LED digital clock, track number, scrolling marquee title, volume/pan faders, and playback transport controls.
+  - **Main Unit**: Classic green LED digital clock (click to toggle between elapsed and remaining countdown `-MM:SS` time), track number, scrolling marquee title with full Latin/UTF-8 accented character support, volume/pan faders, and playback transport controls.
   - **Info Unit**: Real-time stream technical metrics (`160 kbps`, `48.0 kHz`, `STEREO`, `Opus Audio`) and segmented LED loading progress indicators.
   - **10-Band Equalizer**: Interactive sliders with preamp gain adjustment and 10 frequency bands (60 Hz to 16 kHz).
-  - **Scalable Playlist**: Freely resizable via the bottom-right drag grip (`///`), continuous drag-to-scroll, track reordering (`^`/`v`), and clean metadata display with total duration and track count.
+  - **Scalable Playlist**: Freely resizable via the bottom-right drag grip (`///`), multi-track selection (<kbd>Shift</kbd>/<kbd>Ctrl</kbd>+Click, <kbd>Ctrl+A</kbd>), drag-and-drop track reordering with visual insertion indicator, batch removal, and clean UTF-8 metadata display with total duration and track count.
 - **Global Multimedia Keys in Background**: Full playback control (Play/Pause, Next, Prev, Stop) even when minimized or unfocused via Win32 `RegisterHotKey` on Windows and MPRIS v2 D-Bus on Linux.
+- **Native Windows Volume Mixer Integration & OSD Protection**: Registers the audio session cleanly as `"Freenamp"` in the Windows Volume Mixer (WASAPI) and natively blocks RivaTuner Statistics Server (RTSS / MSI Afterburner) hardware monitoring overlays from injecting into the player UI.
 - **Magnetic Window Docking**: Subwindows magnetically attract and snap together or to screen borders. Moving the main unit moves docked child windows together.
 - **YouTube Playlists & Mixes**: Seamlessly resolves single videos, full playlists, and YouTube radio mixes up to 50 tracks.
 - **Smart Token & CDN Expiration Renewal**: Automatically parses YouTube CDN expiration tokens (`expire=<timestamp>`). Expired streams are re-resolved transparently on-demand without user intervention.
-- **Full Session & Geometry Persistence**: Automatically persists volume, balance, shuffle, repeat, selected track, internal window positions (`x`, `y`), playlist size (`w`, `h`), and visibility states in `cache/settings.json`.
+- **Full Session & Geometry Persistence**: Automatically persists volume, balance, shuffle, repeat, countdown clock mode, selected track, internal window positions (`x`, `y`), playlist size (`w`, `h`), and visibility states in `cache/settings.json`.
 - **Stand-Alone Portable Package**: Packaged with internal DLLs isolated in a `core/` directory and standalone native Windows executable.
 
-### Keyboard Shortcuts
+### Keyboard & Mouse Shortcuts
 
 | Shortcut | Description |
 | :--- | :--- |
@@ -54,8 +55,9 @@
 | <kbd>Media Next</kbd> | Next track (Global / Minimized) |
 | <kbd>Media Prev</kbd> | Previous track (Global / Minimized) |
 | <kbd>Media Stop</kbd> | Stop playback (Global / Minimized) |
+| <kbd>Click on LED Clock</kbd> | Toggle between elapsed (`MM:SS`) and remaining (`-MM:SS`) time |
 | <kbd>Space</kbd> | Toggle Play / Pause |
-| <kbd>X</kbd> | Play |
+| <kbd>X</kbd> | Play (if multiple tracks selected, plays the first selected) |
 | <kbd>C</kbd> | Pause |
 | <kbd>V</kbd> | Stop |
 | <kbd>Z</kbd> | Previous track |
@@ -65,7 +67,9 @@
 | <kbd>Up Arrow</kbd> | Volume up (+5%) |
 | <kbd>Down Arrow</kbd> | Volume down (-5%) |
 | <kbd>L</kbd> or <kbd>Ctrl</kbd> + <kbd>V</kbd> or <kbd>Ctrl</kbd> + <kbd>O</kbd> | Open "Add YouTube URL" modal |
-| <kbd>Delete</kbd> | Remove selected track from playlist |
+| <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select all tracks in playlist |
+| <kbd>Shift</kbd> / <kbd>Ctrl</kbd> + <kbd>Click</kbd> | Multi-select tracks in playlist (range or individual) |
+| <kbd>Delete</kbd> | Remove selected track(s) from playlist |
 | <kbd>Mouse Wheel</kbd> | Scroll tracklist up / down |
 | <kbd>Enter</kbd> *(in dialog)* | Add URL and close modal |
 | <kbd>Esc</kbd> *(in dialog)* | Cancel and close modal |
@@ -83,9 +87,10 @@
    - If a valid YouTube URL is already in your Windows clipboard, Freenamp automatically pastes it into the field.
    - Click **`ADICIONAR`** or press <kbd>Enter</kbd>.
 3. **Managing the Playlist**:
-   - **Play**: Double-click any track or select it and press <kbd>X</kbd>.
-   - **Reorder**: Select a track and click **`^`** (Move Up) or **`v`** (Move Down).
-   - **Delete Track**: Select a track and press <kbd>Delete</kbd> or click **`- REM`**.
+   - **Play**: Double-click any track or select it and press <kbd>X</kbd> (with multi-selection, pressing Play starts the first selected track).
+   - **Multi-Select**: Hold <kbd>Shift</kbd> + Click to select a range, <kbd>Ctrl</kbd> + Click to toggle individual tracks, or press <kbd>Ctrl+A</kbd> to select all.
+   - **Reorder**: Drag and drop selected track(s) directly with the mouse (guided by the yellow insertion line), or click **`^`** (Move Up) / **`v`** (Move Down).
+   - **Delete Track(s)**: Select one or more tracks and press <kbd>Delete</kbd> or click **`- REM`**.
    - **Clear All**: Click **`CLEAR`** to empty the playlist and purge temporary playback caches.
 4. **Resizing & Arranging**:
    - Drag any window by its title bar. Windows snap magnetically to each other.
@@ -103,24 +108,26 @@ O **Freenamp** une a estética icônica retrô dos reprodutores de mídia cláss
 ### Recursos Principais
 
 - **Interface Retrô Modular**:
-  - **Quadro Principal**: Relógio digital em LED verde, número da faixa, letreiro deslizante com o nome da música, sliders de volume/pan e botões clássicos de transporte.
+  - **Quadro Principal**: Relógio digital em LED verde (clique no tempo para alternar entre modo normal `MM:SS` e regressivo `-MM:SS`), número da faixa, letreiro deslizante com suporte completo a acentuação e caracteres latinos UTF-8, sliders de volume/pan e botões clássicos de transporte.
   - **Quadro Info**: Exibição técnica das características do áudio (`160 kbps`, `48.0 kHz`, `STEREO`, `Opus Audio`) e barra segmentada de progresso em LED durante o carregamento de URLs.
   - **Equalizador de 10 Bandas**: Sliders verticais independentes de 60 Hz a 16 kHz com controle de ganho pré-amplificador (Preamp) e botão Flat.
-  - **Playlist Escalonável**: Redimensionamento livre pelo canto inferior direito (`///`), rolagem fluida por arrasto na barra, reordenação de faixas (`^`/`v`) e rodapé limpo com total de faixas e duração acumulada.
+  - **Playlist Escalonável**: Redimensionamento livre pelo canto inferior direito (`///`), seleção múltipla de faixas (<kbd>Shift</kbd>/<kbd>Ctrl</kbd>+Clique, <kbd>Ctrl+A</kbd>), reordenação por arrastar e soltar (drag-and-drop) com linha guia amarela ou botões (`^`/`v`), exclusão em lote e suporte a caracteres acentuados UTF-8.
 - **Teclas Multimídia Globais em Segundo Plano**: Controle total de reprodução (Play/Pause, Próxima, Anterior, Stop) com a janela minimizada ou em segundo plano via `RegisterHotKey` no Windows e MPRIS v2 D-Bus no Linux.
+- **Assinatura Nativa no Mixer do Windows e Bloqueio de OSD**: Identifica-se limpa e exclusivamente como `"Freenamp"` no Mixer de Volume do Windows (WASAPI) e bloqueia nativamente a injeção de overlays de monitoramento de jogos (RivaTuner Statistics Server / MSI Afterburner).
 - **Acoplamento Magnético (Window Docking)**: As janelas internas se atraem e se encaixam magneticamente entre si e nas bordas do aplicativo. Ao mover o painel principal, as janelas acopladas movem-se juntas.
 - **Playlists e Mixes do YouTube**: Suporte completo a links de vídeos únicos, playlists convencionais e mixes automáticos gerados pelo YouTube (até 50 faixas).
 - **Renovação Automática de Links Expirados**: Analisa o parâmetro criptográfico `expire=` da CDN do Google. Se o link expirar de um dia para o outro, o Freenamp renova o stream em segundo plano automaticamente ao dar Play, sem exigir recarregamentos manuais.
-- **Persistência Total de Sessão e Geometria**: Salva e restaura volume, balanço, modo shuffle, repeat, faixa selecionada, posições (`x`, `y`), tamanho da playlist (`w`, `h`) e estados de visibilidade em `cache/settings.json`.
+- **Persistência Total de Sessão e Geometria**: Salva e restaura volume, balanço, modo shuffle, repeat, modo regressivo do relógio, faixa selecionada, posições (`x`, `y`), tamanho da playlist (`w`, `h`) e estados de visibilidade em `cache/settings.json`.
 - **Distribuição Portátil Standalone**: DLLs organizadas na pasta interna `core/` e executável Windows nativo com ícone em alta definição embutido.
 
-### Atalhos de Teclado
+### Atalhos de Teclado e Mouse
 
 | Atalho | Ação |
 | :--- | :--- |
 | <kbd>Teclas Multimídia</kbd> | Play/Pause, Próxima, Anterior e Parar globais (em segundo plano ou minimizado) |
+| <kbd>Clique no Relógio LED</kbd> | Alternar entre tempo decorrido (`MM:SS`) e contagem regressiva (`-MM:SS`) |
 | <kbd>Espaço</kbd> | Alternar Reproduzir / Pausar |
-| <kbd>X</kbd> | Tocar (Play) |
+| <kbd>X</kbd> | Tocar (Play — com múltiplas faixas selecionadas, toca a primeira da seleção) |
 | <kbd>C</kbd> | Pausar (Pause) |
 | <kbd>V</kbd> | Parar (Stop) |
 | <kbd>Z</kbd> | Faixa anterior |
@@ -130,7 +137,9 @@ O **Freenamp** une a estética icônica retrô dos reprodutores de mídia cláss
 | <kbd>Seta Cima</kbd> | Aumentar volume (+5%) |
 | <kbd>Seta Baixo</kbd> | Diminuir volume (-5%) |
 | <kbd>L</kbd> ou <kbd>Ctrl</kbd> + <kbd>V</kbd> ou <kbd>Ctrl</kbd> + <kbd>O</kbd> | Abrir modal "Adicionar URL do YouTube" |
-| <kbd>Delete</kbd> | Remover faixa selecionada da playlist |
+| <kbd>Ctrl</kbd> + <kbd>A</kbd> | Selecionar todas as músicas da playlist |
+| <kbd>Shift</kbd> / <kbd>Ctrl</kbd> + <kbd>Clique</kbd> | Seleção múltipla de músicas (intervalo contínuo ou itens alternados) |
+| <kbd>Delete</kbd> | Remover música(s) selecionada(s) da playlist |
 | <kbd>Scroll do Mouse</kbd> | Rolar lista de músicas para cima / baixo |
 | <kbd>Enter</kbd> *(no diálogo)* | Confirmar adição da URL |
 | <kbd>Esc</kbd> *(no diálogo)* | Cancelar e fechar diálogo |
@@ -148,9 +157,10 @@ O **Freenamp** une a estética icônica retrô dos reprodutores de mídia cláss
    - Se houver um link de vídeo ou playlist do YouTube na área de transferência do Windows, o Freenamp preenche o campo automaticamente.
    - Pressione **`ADICIONAR`** ou aperte <kbd>Enter</kbd>.
 3. **Gerenciando a Lista de Reprodução**:
-   - **Tocar**: Dê duplo clique em qualquer música da lista ou selecione-a e pressione <kbd>X</kbd>.
-   - **Reordenar**: Selecione uma faixa e use os botões **`^`** (Subir) ou **`v`** (Descer).
-   - **Remover**: Selecione uma música e pressione <kbd>Delete</kbd> no teclado ou clique no botão **`- REM`**.
+   - **Tocar**: Dê duplo clique em qualquer música da lista ou selecione-a e pressione <kbd>X</kbd> (se várias músicas estiverem selecionadas, apertar Play inicia apenas a primeira selecionada).
+   - **Seleção Múltipla**: Segure <kbd>Shift</kbd> + Clique para selecionar um bloco de músicas, <kbd>Ctrl</kbd> + Clique para marcar/desmarcar músicas individuais, ou <kbd>Ctrl+A</kbd> para selecionar todas.
+   - **Reordenar**: Arraste as faixas selecionadas diretamente com o mouse para a posição desejada (indicada pela linha amarela) ou use os botões **`^`** (Subir) e **`v`** (Descer).
+   - **Remover**: Selecione uma ou mais músicas e pressione <kbd>Delete</kbd> no teclado ou clique no botão **`- REM`**.
    - **Limpar**: Clique em **`CLEAR`** para esvaziar a lista e purgar os caches temporários de streaming.
 4. **Organização das Janelas**:
    - Arraste qualquer módulo pela sua barra de título. As janelas se alinham automaticamente por magnetismo.

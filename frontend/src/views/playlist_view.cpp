@@ -110,8 +110,8 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
         int max_title_chars = std::max(6, avail_title_w / 8);
 
         std::string display_title = track.title;
-        if (static_cast<int>(display_title.size()) > max_title_chars) {
-            display_title = display_title.substr(0, std::max(1, max_title_chars - 2)) + "..";
+        if (static_cast<int>(RetroFont::utf8_length(display_title)) > max_title_chars) {
+            display_title = RetroFont::utf8_substr(display_title, std::max(1, max_title_chars - 2)) + "..";
         }
 
         std::string line_text = prefix + display_title;
@@ -166,7 +166,7 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
     // 5. Total Duration & Counts
     std::string total_dur = backend::YtResolver::format_duration(playlist.get_total_duration());
     std::string info_text = std::to_string(total_tracks) + " faixas / " + total_dur;
-    int info_w = static_cast<int>(info_text.size()) * 8;
+    int info_w = static_cast<int>(RetroFont::utf8_length(info_text)) * 8;
     int info_x = bx + m_btn_up.x - info_w - 6;
     if (info_x < bx + 165) info_x = bx + 165;
     RetroFont::draw_text(renderer, info_text, info_x, by + m_bounds.h - 21, Palette::TextDim, 1);
