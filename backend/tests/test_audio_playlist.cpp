@@ -83,11 +83,30 @@ void test_playlist_manager() {
     pm.move_track(1, 0);
     assert(pm.get_track(0)->title == "Track 2");
 
+    // Test move_tracks (batch move)
+    TrackMetadata t4{"id4", "Track 4", "Artist D", 150, "http://stream4", true, ""};
+    pm.add_track(t4);
+    // Tracks now: [Track 2, Track 1, Track 3, Track 4]
+    assert(pm.size() == 4);
+    auto [m_start, m_end] = pm.move_tracks({1, 2}, 0);
+    assert(m_start == 0 && m_end == 1);
+    assert(pm.get_track(0)->title == "Track 1");
+    assert(pm.get_track(1)->title == "Track 3");
+    assert(pm.get_track(2)->title == "Track 2");
+    assert(pm.get_track(3)->title == "Track 4");
+
+    // Test remove_tracks (batch remove)
+    bool rm_ok = pm.remove_tracks({0, 3});
+    assert(rm_ok);
+    assert(pm.size() == 2);
+    assert(pm.get_track(0)->title == "Track 3");
+    assert(pm.get_track(1)->title == "Track 2");
+
     // Shuffle test
     pm.set_shuffle(true);
     assert(pm.is_shuffle());
     int peek_idx = pm.peek_next_index();
-    assert(peek_idx >= 0 && peek_idx < 3);
+    assert(peek_idx >= 0 && peek_idx < 2);
 
     std::cout << "  -> PlaylistManager passou com sucesso!\n\n";
 }

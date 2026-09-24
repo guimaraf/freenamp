@@ -15,7 +15,7 @@ public:
     void render(SDL_Renderer* renderer, backend::CoreController& core);
 
     // Event handling
-    bool handle_mouse_down(int mx, int my, backend::CoreController& core, bool& request_open_url, bool& toggle_eq, bool& toggle_pl);
+    bool handle_mouse_down(int mx, int my, backend::CoreController& core, bool& request_open_url, bool& toggle_eq, bool& toggle_pl, bool& play_requested);
     void handle_mouse_up(int mx, int my);
     void handle_mouse_move(int mx, int my, backend::CoreController& core, int canvas_w = 0, int canvas_h = 0);
 

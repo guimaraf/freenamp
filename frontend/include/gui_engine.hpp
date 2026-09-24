@@ -43,6 +43,7 @@ private:
 
     void process_events(backend::CoreController& core);
     void render(backend::CoreController& core);
+    void trigger_play(backend::CoreController& core);
 };
 
 } // namespace freenamp::frontend

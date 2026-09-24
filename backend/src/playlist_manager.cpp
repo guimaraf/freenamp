@@ -26,17 +26,53 @@ void PlaylistManager::add_playlist(const PlaylistMetadata& playlist) {
 }
 
 bool PlaylistManager::remove_track(size_t index) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    if (index >= m_tracks.size()) return false;
+    return remove_tracks({ index });
+}
 
-    m_tracks.erase(m_tracks.begin() + index);
+bool PlaylistManager::remove_tracks(const std::vector<size_t>& indices) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (indices.empty() || m_tracks.empty()) return false;
+
+    // Filter valid indices
+    std::vector<size_t> sorted_indices;
+    sorted_indices.reserve(indices.size());
+    for (size_t idx : indices) {
+        if (idx < m_tracks.size()) {
+            sorted_indices.push_back(idx);
+        }
+    }
+    if (sorted_indices.empty()) return false;
+
+    std::sort(sorted_indices.begin(), sorted_indices.end());
+    sorted_indices.erase(std::unique(sorted_indices.begin(), sorted_indices.end()), sorted_indices.end());
+
+    int orig_current = m_current_index;
+    bool current_removed = false;
+    int before_current_count = 0;
+
+    for (size_t idx : sorted_indices) {
+        if (static_cast<int>(idx) == orig_current) {
+            current_removed = true;
+        } else if (static_cast<int>(idx) < orig_current) {
+            before_current_count++;
+        }
+    }
+
+    // Erase in descending order
+    for (auto it = sorted_indices.rbegin(); it != sorted_indices.rend(); ++it) {
+        m_tracks.erase(m_tracks.begin() + *it);
+    }
 
     if (m_tracks.empty()) {
         m_current_index = -1;
-    } else if (static_cast<int>(index) < m_current_index) {
-        m_current_index--;
-    } else if (m_current_index >= static_cast<int>(m_tracks.size())) {
-        m_current_index = static_cast<int>(m_tracks.size()) - 1;
+    } else if (current_removed) {
+        int next_idx = orig_current - before_current_count;
+        if (next_idx >= static_cast<int>(m_tracks.size())) {
+            next_idx = static_cast<int>(m_tracks.size()) - 1;
+        }
+        m_current_index = std::max(0, next_idx);
+    } else {
+        m_current_index = std::max(0, orig_current - before_current_count);
     }
 
     rebuild_shuffle_indices();
@@ -53,24 +89,75 @@ void PlaylistManager::clear() {
 }
 
 void PlaylistManager::move_track(size_t from_idx, size_t to_idx) {
+    move_tracks({ from_idx }, to_idx);
+}
+
+std::pair<size_t, size_t> PlaylistManager::move_tracks(const std::vector<size_t>& from_indices, size_t to_idx) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (from_idx >= m_tracks.size() || to_idx >= m_tracks.size() || from_idx == to_idx) {
-        return;
+    if (from_indices.empty() || m_tracks.empty() || to_idx >= m_tracks.size()) {
+        return { 0, 0 };
     }
 
-    auto track = m_tracks[from_idx];
-    m_tracks.erase(m_tracks.begin() + from_idx);
-    m_tracks.insert(m_tracks.begin() + to_idx, track);
+    // Sort unique indices
+    std::vector<size_t> sorted = from_indices;
+    std::sort(sorted.begin(), sorted.end());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
 
-    if (m_current_index == static_cast<int>(from_idx)) {
-        m_current_index = static_cast<int>(to_idx);
-    } else if (from_idx < to_idx && m_current_index > static_cast<int>(from_idx) && m_current_index <= static_cast<int>(to_idx)) {
-        m_current_index--;
-    } else if (from_idx > to_idx && m_current_index >= static_cast<int>(to_idx) && m_current_index < static_cast<int>(from_idx)) {
-        m_current_index++;
+    // Extract tracks
+    std::vector<TrackMetadata> extracted;
+    extracted.reserve(sorted.size());
+    for (size_t idx : sorted) {
+        if (idx < m_tracks.size()) {
+            extracted.push_back(m_tracks[idx]);
+        }
+    }
+    if (extracted.empty()) return { 0, 0 };
+
+    // Remember currently playing track ID if any
+    std::string current_track_id = "";
+    if (m_current_index >= 0 && m_current_index < static_cast<int>(m_tracks.size())) {
+        current_track_id = m_tracks[m_current_index].id;
+    }
+
+    // Count how many removed tracks were strictly before to_idx
+    size_t count_before_to = 0;
+    for (size_t idx : sorted) {
+        if (idx < to_idx) {
+            count_before_to++;
+        }
+    }
+
+    // Erase tracks in reverse order
+    for (auto it = sorted.rbegin(); it != sorted.rend(); ++it) {
+        if (*it < m_tracks.size()) {
+            m_tracks.erase(m_tracks.begin() + *it);
+        }
+    }
+
+    // Determine insert position
+    size_t insert_pos = (to_idx >= count_before_to) ? (to_idx - count_before_to) : 0;
+    if (insert_pos > m_tracks.size()) {
+        insert_pos = m_tracks.size();
+    }
+
+    // Insert extracted tracks
+    m_tracks.insert(m_tracks.begin() + insert_pos, extracted.begin(), extracted.end());
+
+    // Restore m_current_index
+    if (!current_track_id.empty()) {
+        for (size_t i = 0; i < m_tracks.size(); ++i) {
+            if (m_tracks[i].id == current_track_id) {
+                m_current_index = static_cast<int>(i);
+                break;
+            }
+        }
     }
 
     rebuild_shuffle_indices();
+
+    size_t new_start = insert_pos;
+    size_t new_end = insert_pos + extracted.size() - 1;
+    return { new_start, new_end };
 }
 
 void PlaylistManager::set_track_stream_url(size_t index, const std::string& stream_url) {

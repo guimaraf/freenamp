@@ -104,7 +104,7 @@ void MainView::render(SDL_Renderer* renderer, backend::CoreController& core) {
     RetroWidgets::draw_transport_icon(renderer, eject_r, "eject", m_pressed_button == "eject");
 }
 
-bool MainView::handle_mouse_down(int mx, int my, backend::CoreController& core, bool& request_open_url, bool& toggle_eq, bool& toggle_pl) {
+bool MainView::handle_mouse_down(int mx, int my, backend::CoreController& core, bool& request_open_url, bool& toggle_eq, bool& toggle_pl, bool& play_requested) {
     if (!m_bounds.contains(mx, my)) return false;
 
     int bx = m_bounds.x;
@@ -143,7 +143,7 @@ bool MainView::handle_mouse_down(int mx, int my, backend::CoreController& core, 
     Rect play_r = { bx + m_btn_play.x, by + m_btn_play.y, m_btn_play.w, m_btn_play.h };
     if (play_r.contains(mx, my)) {
         m_pressed_button = "play";
-        core.play();
+        play_requested = true;
         return true;
     }
 

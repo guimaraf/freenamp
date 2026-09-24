@@ -187,8 +187,10 @@ void GuiEngine::process_events(backend::CoreController& core) {
             bool request_open_url = false;
             bool toggle_eq = false;
             bool toggle_pl = false;
+            bool play_requested = false;
 
-            if (m_main_view.handle_mouse_down(mx, my, core, request_open_url, toggle_eq, toggle_pl)) {
+            if (m_main_view.handle_mouse_down(mx, my, core, request_open_url, toggle_eq, toggle_pl, play_requested)) {
+                if (play_requested) trigger_play(core);
                 if (request_open_url) m_input_modal.open();
                 if (toggle_eq) {
                     m_eq_view.toggle_visible();
@@ -215,7 +217,7 @@ void GuiEngine::process_events(backend::CoreController& core) {
 
             bool pl_add = false;
             bool pl_close = false;
-            if (m_playlist_view.is_visible() && m_playlist_view.handle_mouse_down(mx, my, core, pl_add, pl_close)) {
+            if (m_playlist_view.is_visible() && m_playlist_view.handle_mouse_down(mx, my, event.button.clicks, core, pl_add, pl_close)) {
                 if (pl_add) m_input_modal.open();
                 if (pl_close) save_window_layout();
                 continue;
@@ -274,7 +276,7 @@ void GuiEngine::process_events(backend::CoreController& core) {
             m_main_view.handle_mouse_up(mx, my);
             m_info_view.handle_mouse_up(mx, my);
             m_eq_view.handle_mouse_up(mx, my);
-            m_playlist_view.handle_mouse_up(mx, my);
+            m_playlist_view.handle_mouse_up(mx, my, core);
 
             if (was_dragging_or_resizing) {
                 save_window_layout();
@@ -354,7 +356,7 @@ void GuiEngine::process_events(backend::CoreController& core) {
                 m_main_view.handle_mouse_move(mx, my, core, m_width, m_height);
                 m_info_view.handle_mouse_move(mx, my, m_width, m_height);
                 m_eq_view.handle_mouse_move(mx, my, core, m_width, m_height);
-                m_playlist_view.handle_mouse_move(mx, my, m_width, m_height);
+                m_playlist_view.handle_mouse_move(mx, my, core, m_width, m_height);
             }
         }
 
@@ -373,7 +375,7 @@ void GuiEngine::process_events(backend::CoreController& core) {
             } else if (key == SDLK_z) {
                 core.previous();
             } else if (key == SDLK_x) {
-                core.play();
+                trigger_play(core);
             } else if (key == SDLK_c) {
                 core.pause();
             } else if (key == SDLK_v) {
@@ -604,6 +606,15 @@ void GuiEngine::load_window_layout() {
             }
         }
     } catch (...) {}
+}
+
+void GuiEngine::trigger_play(backend::CoreController& core) {
+    if (m_playlist_view.is_visible() && m_playlist_view.has_user_selection()) {
+        int first_idx = m_playlist_view.get_first_selected_index();
+        core.play_track_index(first_idx);
+    } else {
+        core.play();
+    }
 }
 
 } // namespace freenamp::frontend

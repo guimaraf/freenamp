@@ -25,8 +25,10 @@ public:
     void add_track(const TrackMetadata& track);
     void add_playlist(const PlaylistMetadata& playlist);
     bool remove_track(size_t index);
+    bool remove_tracks(const std::vector<size_t>& indices);
     void clear();
     void move_track(size_t from_idx, size_t to_idx);
+    std::pair<size_t, size_t> move_tracks(const std::vector<size_t>& from_indices, size_t to_idx);
     void set_track_stream_url(size_t index, const std::string& stream_url);
     bool save_to_file(const std::string& filepath) const;
     bool load_from_file(const std::string& filepath);

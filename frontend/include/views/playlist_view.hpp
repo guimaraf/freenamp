@@ -5,6 +5,7 @@
 #include "core_controller.hpp"
 #include <SDL.h>
 #include <vector>
+#include <set>
 #include <chrono>
 
 namespace freenamp::frontend {
@@ -15,9 +16,9 @@ public:
 
     void render(SDL_Renderer* renderer, backend::CoreController& core);
 
-    bool handle_mouse_down(int mx, int my, backend::CoreController& core, bool& open_url_dialog, bool& close_requested);
-    void handle_mouse_up(int mx, int my);
-    void handle_mouse_move(int mx, int my, int canvas_w = 0, int canvas_h = 0);
+    bool handle_mouse_down(int mx, int my, int clicks, backend::CoreController& core, bool& open_url_dialog, bool& close_requested);
+    void handle_mouse_up(int mx, int my, backend::CoreController& core);
+    void handle_mouse_move(int mx, int my, backend::CoreController& core, int canvas_w = 0, int canvas_h = 0);
     void handle_mouse_wheel(int wheel_y);
 
     Rect get_bounds() const { return m_bounds; }
@@ -29,9 +30,17 @@ public:
     void toggle_visible() { m_visible = !m_visible; }
 
     int get_selected_index() const { return m_selected_index; }
-    void set_selected_index(int idx) { m_selected_index = idx; }
+    void set_selected_index(int idx);
     void ensure_visible(int index, int total_tracks = -1);
     void remove_selected(backend::CoreController& core);
+
+    // Multi-selection queries
+    bool has_user_selection() const { return !m_selected_indices.empty(); }
+    int get_first_selected_index() const {
+        if (m_selected_indices.empty()) return m_selected_index;
+        return *m_selected_indices.begin();
+    }
+    const std::set<int>& get_selected_indices() const { return m_selected_indices; }
 
     bool is_dragging_window() const { return m_dragging_window; }
     bool is_resizing() const { return m_is_resizing; }
@@ -56,9 +65,19 @@ private:
     // Scroll dragging state
     bool m_dragging_scrollbar = false;
 
+    // Multi-selection state
+    std::set<int> m_selected_indices;
+    int m_selection_anchor = -1;
     int m_selected_index = 0;
     int m_scroll_offset = 0; // First visible track index
     int m_total_tracks = 0;
+
+    // Drag-and-drop reordering state
+    bool m_is_dragging_track = false;
+    int m_drag_track_index = -1;
+    int m_drag_start_x = 0;
+    int m_drag_start_y = 0;
+    int m_drop_target_index = -1;
 
     // Double-click detection
     std::chrono::steady_clock::time_point m_last_click_time;

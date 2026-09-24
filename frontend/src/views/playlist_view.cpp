@@ -34,6 +34,15 @@ PlaylistView::PlaylistView(int x, int y, int w, int h) {
     set_size(w, h);
 }
 
+void PlaylistView::set_selected_index(int idx) {
+    m_selected_index = idx;
+    m_selected_indices.clear();
+    if (idx >= 0) {
+        m_selected_indices.insert(idx);
+    }
+    m_selection_anchor = idx;
+}
+
 void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core) {
     if (!m_visible) return;
 
@@ -72,7 +81,7 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
         const auto& track = tracks[track_idx];
         int item_y = list_r.y + 2 + i * line_h;
 
-        bool is_selected = (track_idx == m_selected_index);
+        bool is_selected = (m_selected_indices.count(track_idx) > 0 || track_idx == m_selected_index);
         bool is_playing = (track_idx == current_playing_idx);
 
         // Highlight selected track
@@ -110,6 +119,17 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
         RetroFont::draw_text(renderer, dur_text, dur_x, item_y + 2, item_color, 1);
     }
 
+    // Draw drop insertion line indicator if dragging tracks
+    if (m_is_dragging_track && m_drop_target_index >= 0) {
+        if (m_drop_target_index >= m_scroll_offset && m_drop_target_index <= m_scroll_offset + visible_lines) {
+            int line_idx = m_drop_target_index - m_scroll_offset;
+            int indicator_y = list_r.y + 2 + line_idx * line_h;
+            SDL_SetRenderDrawColor(renderer, Palette::LedYellow.r, Palette::LedYellow.g, Palette::LedYellow.b, 255);
+            SDL_Rect ind_r = { list_r.x + 2, indicator_y - 1, list_r.w - 4, 3 };
+            SDL_RenderFillRect(renderer, &ind_r);
+        }
+    }
+
     SDL_RenderSetClipRect(renderer, nullptr);
 
     // 3. Scrollbar
@@ -143,7 +163,7 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
     Rect dn_r = { bx + m_btn_down.x, by + m_btn_down.y, m_btn_down.w, m_btn_down.h };
     RetroWidgets::draw_button(renderer, dn_r, "v");
 
-    // 5. Total Duration & Counts (placed BELOW the playlist box on bottom toolbar)
+    // 5. Total Duration & Counts
     std::string total_dur = backend::YtResolver::format_duration(playlist.get_total_duration());
     std::string info_text = std::to_string(total_tracks) + " faixas / " + total_dur;
     int info_w = static_cast<int>(info_text.size()) * 8;
@@ -155,7 +175,7 @@ void PlaylistView::render(SDL_Renderer* renderer, backend::CoreController& core)
     RetroWidgets::draw_resize_grip(renderer, bx + m_bounds.w - 3, by + m_bounds.h - 3);
 }
 
-bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& core, bool& open_url_dialog, bool& close_requested) {
+bool PlaylistView::handle_mouse_down(int mx, int my, int clicks, backend::CoreController& core, bool& open_url_dialog, bool& close_requested) {
     if (!m_visible || !m_bounds.contains(mx, my)) return false;
 
     int bx = m_bounds.x;
@@ -184,35 +204,86 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
         return true;
     }
 
-    // List box click (select track or double-click to play)
+    // List box click (select track, double-click to play, or start drag reorder)
     Rect list_r = { bx + m_list_box.x, by + m_list_box.y, m_list_box.w, m_list_box.h };
     if (list_r.contains(mx, my)) {
         int line_h = 12;
         int clicked_line = (my - (list_r.y + 2)) / line_h;
         int clicked_track = m_scroll_offset + clicked_line;
+        int total = static_cast<int>(core.get_playlist().size());
 
-        if (clicked_track >= 0 && clicked_track < static_cast<int>(core.get_playlist().size())) {
+        if (clicked_track >= 0 && clicked_track < total) {
             auto now = std::chrono::steady_clock::now();
             auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_click_time).count();
 
-            if (clicked_track == m_last_clicked_index && elapsed_ms < 500) {
-                // Double click -> PLAY!
+            // Double-click: native clicks >= 2 or software threshold < 600ms
+            if (clicks >= 2 || (clicked_track == m_last_clicked_index && elapsed_ms < 600)) {
+                m_selected_indices.clear();
+                m_selected_indices.insert(clicked_track);
                 m_selected_index = clicked_track;
+                m_selection_anchor = clicked_track;
+                m_last_clicked_index = -1;
+                m_last_click_time = std::chrono::steady_clock::time_point{};
                 core.play_track_index(clicked_track);
-            } else {
-                // Single click -> SELECT
+                return true;
+            }
+
+            SDL_Keymod mod = SDL_GetModState();
+            bool is_shift = (mod & KMOD_SHIFT) != 0;
+            bool is_ctrl = (mod & KMOD_CTRL) != 0;
+
+            if (is_shift) {
+                if (m_selection_anchor < 0 || m_selection_anchor >= total) {
+                    m_selection_anchor = m_selected_index;
+                }
+                if (!is_ctrl) {
+                    m_selected_indices.clear();
+                }
+                int start = std::min(m_selection_anchor, clicked_track);
+                int end = std::max(m_selection_anchor, clicked_track);
+                for (int i = start; i <= end; ++i) {
+                    m_selected_indices.insert(i);
+                }
                 m_selected_index = clicked_track;
-                if (core.get_state() == backend::PlaybackState::Stopped) {
-                    core.get_playlist().set_current_index(clicked_track);
-                    auto tr = core.get_playlist().get_track(clicked_track);
-                    if (tr.has_value()) {
-                        core.set_current_title(tr->title);
+            } else if (is_ctrl) {
+                if (m_selected_indices.count(clicked_track)) {
+                    m_selected_indices.erase(clicked_track);
+                    if (m_selected_indices.empty()) {
+                        m_selected_indices.insert(clicked_track);
                     }
+                } else {
+                    m_selected_indices.insert(clicked_track);
+                }
+                m_selection_anchor = clicked_track;
+                m_selected_index = clicked_track;
+            } else {
+                // If clicked track is not in current multi-selection, select it exclusively
+                if (m_selected_indices.count(clicked_track) == 0) {
+                    m_selected_indices.clear();
+                    m_selected_indices.insert(clicked_track);
+                    m_selection_anchor = clicked_track;
+                    m_selected_index = clicked_track;
                 }
             }
 
+            // Set up drag initiation
+            m_drag_track_index = clicked_track;
+            m_drag_start_x = mx;
+            m_drag_start_y = my;
+            m_is_dragging_track = false;
+            m_drop_target_index = -1;
+
             m_last_clicked_index = clicked_track;
             m_last_click_time = now;
+
+            if (core.get_state() == backend::PlaybackState::Stopped && !m_selected_indices.empty()) {
+                int first_sel = *m_selected_indices.begin();
+                core.get_playlist().set_current_index(first_sel);
+                auto tr = core.get_playlist().get_track(first_sel);
+                if (tr.has_value()) {
+                    core.set_current_title(tr->title);
+                }
+            }
         }
         return true;
     }
@@ -250,6 +321,7 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
         core.get_resolver().clear_cache();
         core.set_current_title("Freenamp Ready");
         core.set_status_text("Pronto");
+        m_selected_indices.clear();
         m_selected_index = 0;
         m_scroll_offset = 0;
         core.save_session();
@@ -259,10 +331,20 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
     // UP button
     Rect up_r = { bx + m_btn_up.x, by + m_btn_up.y, m_btn_up.w, m_btn_up.h };
     if (up_r.contains(mx, my)) {
-        if (m_selected_index > 0) {
-            core.get_playlist().move_track(m_selected_index, m_selected_index - 1);
-            m_selected_index--;
-            core.save_session();
+        if (!m_selected_indices.empty()) {
+            int first_idx = *m_selected_indices.begin();
+            if (first_idx > 0) {
+                std::vector<size_t> move_indices(m_selected_indices.begin(), m_selected_indices.end());
+                auto [new_start, new_end] = core.get_playlist().move_tracks(move_indices, first_idx - 1);
+                m_selected_indices.clear();
+                for (size_t i = new_start; i <= new_end; ++i) {
+                    m_selected_indices.insert(static_cast<int>(i));
+                }
+                m_selected_index = static_cast<int>(new_start);
+                m_selection_anchor = static_cast<int>(new_start);
+                ensure_visible(m_selected_index, static_cast<int>(core.get_playlist().size()));
+                core.save_session();
+            }
         }
         return true;
     }
@@ -270,10 +352,22 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
     // DOWN button
     Rect dn_r = { bx + m_btn_down.x, by + m_btn_down.y, m_btn_down.w, m_btn_down.h };
     if (dn_r.contains(mx, my)) {
-        if (m_selected_index >= 0 && m_selected_index < static_cast<int>(core.get_playlist().size()) - 1) {
-            core.get_playlist().move_track(m_selected_index, m_selected_index + 1);
-            m_selected_index++;
-            core.save_session();
+        int total = static_cast<int>(core.get_playlist().size());
+        if (!m_selected_indices.empty()) {
+            int last_idx = *m_selected_indices.rbegin();
+            if (last_idx >= 0 && last_idx < total - 1) {
+                std::vector<size_t> move_indices(m_selected_indices.begin(), m_selected_indices.end());
+                size_t to_idx = static_cast<size_t>(last_idx + 1);
+                auto [new_start, new_end] = core.get_playlist().move_tracks(move_indices, to_idx);
+                m_selected_indices.clear();
+                for (size_t i = new_start; i <= new_end; ++i) {
+                    m_selected_indices.insert(static_cast<int>(i));
+                }
+                m_selected_index = static_cast<int>(new_start);
+                m_selection_anchor = static_cast<int>(new_start);
+                ensure_visible(m_selected_index, total);
+                core.save_session();
+            }
         }
         return true;
     }
@@ -283,28 +377,39 @@ bool PlaylistView::handle_mouse_down(int mx, int my, backend::CoreController& co
 
 void PlaylistView::remove_selected(backend::CoreController& core) {
     int total = static_cast<int>(core.get_playlist().size());
-    if (total <= 0 || m_selected_index < 0 || m_selected_index >= total) {
-        return;
+    if (total <= 0) return;
+
+    std::vector<size_t> to_remove;
+    if (!m_selected_indices.empty()) {
+        for (int idx : m_selected_indices) {
+            if (idx >= 0 && idx < total) {
+                to_remove.push_back(static_cast<size_t>(idx));
+            }
+        }
+    } else if (m_selected_index >= 0 && m_selected_index < total) {
+        to_remove.push_back(static_cast<size_t>(m_selected_index));
     }
 
-    auto tr_opt = core.get_playlist().get_track(m_selected_index);
-    std::string track_id = tr_opt.has_value() ? tr_opt->id : "";
-    std::string original_url = tr_opt.has_value() ? tr_opt->original_url : "";
+    if (to_remove.empty()) return;
 
-    if (!track_id.empty()) {
-        core.get_resolver().remove_from_cache(track_id);
-    }
-    if (!original_url.empty()) {
-        core.get_resolver().remove_from_cache(original_url);
+    std::sort(to_remove.begin(), to_remove.end());
+    int min_removed = static_cast<int>(to_remove.front());
+
+    for (size_t idx : to_remove) {
+        auto tr_opt = core.get_playlist().get_track(idx);
+        if (tr_opt.has_value()) {
+            if (!tr_opt->id.empty()) core.get_resolver().remove_from_cache(tr_opt->id);
+            if (!tr_opt->original_url.empty()) core.get_resolver().remove_from_cache(tr_opt->original_url);
+        }
     }
 
     int current_idx = core.get_playlist().get_current_index();
-    bool was_current = (current_idx == m_selected_index);
+    bool was_current_removed = (std::find(to_remove.begin(), to_remove.end(), static_cast<size_t>(current_idx)) != to_remove.end());
 
-    core.get_playlist().remove_track(m_selected_index);
+    core.get_playlist().remove_tracks(to_remove);
     int new_total = static_cast<int>(core.get_playlist().size());
 
-    if (was_current) {
+    if (was_current_removed) {
         core.stop();
         if (new_total == 0) {
             core.set_current_title("Freenamp Ready");
@@ -320,15 +425,16 @@ void PlaylistView::remove_selected(backend::CoreController& core) {
         }
     }
 
+    m_selected_indices.clear();
     if (new_total == 0) {
         m_selected_index = 0;
         m_scroll_offset = 0;
         core.set_current_title("Freenamp Ready");
         core.set_status_text("Pronto");
     } else {
-        if (m_selected_index >= new_total) {
-            m_selected_index = new_total - 1;
-        }
+        m_selected_index = std::clamp(min_removed, 0, new_total - 1);
+        m_selected_indices.insert(m_selected_index);
+        m_selection_anchor = m_selected_index;
         if (core.get_state() == backend::PlaybackState::Stopped) {
             core.get_playlist().set_current_index(m_selected_index);
             auto cur_tr = core.get_playlist().get_current_track();
@@ -341,13 +447,80 @@ void PlaylistView::remove_selected(backend::CoreController& core) {
     core.save_session();
 }
 
-void PlaylistView::handle_mouse_up(int /*mx*/, int /*my*/) {
+void PlaylistView::handle_mouse_up(int /*mx*/, int /*my*/, backend::CoreController& core) {
     m_dragging_window = false;
     m_is_resizing = false;
     m_dragging_scrollbar = false;
+
+    if (m_is_dragging_track && m_drag_track_index >= 0 && m_drop_target_index >= 0) {
+        int total = static_cast<int>(core.get_playlist().size());
+        if (m_drop_target_index < total) {
+            std::vector<size_t> move_indices;
+            if (m_selected_indices.count(m_drag_track_index) > 0 && m_selected_indices.size() > 1) {
+                for (int idx : m_selected_indices) {
+                    if (idx >= 0 && idx < total) {
+                        move_indices.push_back(static_cast<size_t>(idx));
+                    }
+                }
+            } else {
+                move_indices.push_back(static_cast<size_t>(m_drag_track_index));
+            }
+
+            auto [new_start, new_end] = core.get_playlist().move_tracks(move_indices, static_cast<size_t>(m_drop_target_index));
+
+            m_selected_indices.clear();
+            for (size_t i = new_start; i <= new_end; ++i) {
+                m_selected_indices.insert(static_cast<int>(i));
+            }
+            m_selected_index = static_cast<int>(new_start);
+            m_selection_anchor = static_cast<int>(new_start);
+            ensure_visible(m_selected_index, total);
+            core.save_session();
+        }
+    } else if (!m_is_dragging_track && m_drag_track_index >= 0) {
+        SDL_Keymod mod = SDL_GetModState();
+        if ((mod & KMOD_SHIFT) == 0 && (mod & KMOD_CTRL) == 0) {
+            m_selected_indices.clear();
+            m_selected_indices.insert(m_drag_track_index);
+            m_selected_index = m_drag_track_index;
+            m_selection_anchor = m_drag_track_index;
+        }
+    }
+
+    m_is_dragging_track = false;
+    m_drag_track_index = -1;
+    m_drop_target_index = -1;
 }
 
-void PlaylistView::handle_mouse_move(int mx, int my, int canvas_w, int canvas_h) {
+void PlaylistView::handle_mouse_move(int mx, int my, backend::CoreController& core, int canvas_w, int canvas_h) {
+    if (m_drag_track_index >= 0) {
+        if (!m_is_dragging_track) {
+            if (std::abs(my - m_drag_start_y) > 4 || std::abs(mx - m_drag_start_x) > 4) {
+                m_is_dragging_track = true;
+            }
+        }
+        if (m_is_dragging_track) {
+            int line_h = 12;
+            int bx = m_bounds.x;
+            int by = m_bounds.y;
+            Rect list_r = { bx + m_list_box.x, by + m_list_box.y, m_list_box.w, m_list_box.h };
+            int total = static_cast<int>(core.get_playlist().size());
+            int visible_lines = list_r.h / line_h;
+
+            int hover_line = (my - (list_r.y + 2)) / line_h;
+            int target_idx = std::clamp(m_scroll_offset + hover_line, 0, std::max(0, total - 1));
+            m_drop_target_index = target_idx;
+
+            // Auto-scroll near top/bottom edges
+            if (my < list_r.y + 6 && m_scroll_offset > 0) {
+                m_scroll_offset--;
+            } else if (my > list_r.y + list_r.h - 6 && m_scroll_offset < total - visible_lines) {
+                m_scroll_offset++;
+            }
+            return;
+        }
+    }
+
     if (m_is_resizing) {
         int nw = m_resize_start_w + (mx - m_resize_start_mx);
         int nh = m_resize_start_h + (my - m_resize_start_my);
