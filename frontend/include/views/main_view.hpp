@@ -22,6 +22,9 @@ public:
     Rect get_bounds() const { return m_bounds; }
     void set_position(int x, int y) { m_bounds.x = x; m_bounds.y = y; }
 
+    bool is_time_remaining_mode() const { return m_time_remaining_mode; }
+    void set_time_remaining_mode(bool remaining) { m_time_remaining_mode = remaining; }
+
     bool is_dragging_window() const { return m_dragging_window; }
     int get_drag_offset_x() const { return m_drag_off_x; }
     int get_drag_offset_y() const { return m_drag_off_y; }
@@ -42,9 +45,13 @@ private:
     Rect m_btn_shuf{ 166, 88, 50, 18 };
     Rect m_btn_rep{ 220, 88, 40, 18 };
 
+    Rect m_clock_hitbox{ 20, 34, 98, 22 };
+
     Rect m_slider_seek{ 16, 73, 243, 10 };
     Rect m_slider_vol{ 105, 56, 68, 10 };
     Rect m_slider_pan{ 177, 56, 38, 10 };
+
+    bool m_time_remaining_mode = false;
 
     // Drag states
     bool m_dragging_window = false;

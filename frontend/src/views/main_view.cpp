@@ -30,10 +30,23 @@ void MainView::render(SDL_Renderer* renderer, backend::CoreController& core) {
     RetroFont::draw_marquee_text(renderer, title_display, bx + 16, by + 23, 240, m_marquee_offset, Palette::TextActive);
 
     // Digital LED Clock
-    double pos = core.get_position();
-    int min = static_cast<int>(pos) / 60;
-    int sec = static_cast<int>(pos) % 60;
-    RetroFont::draw_led_clock(renderer, min, sec, false, bx + 55, by + 38, Palette::LedGreen);
+    double pos = std::max(0.0, core.get_position());
+    int min = 0;
+    int sec = 0;
+    bool is_neg = false;
+
+    if (m_time_remaining_mode) {
+        double dur = core.get_duration();
+        double rem = (dur > 0.0) ? std::max(0.0, dur - pos) : 0.0;
+        min = static_cast<int>(rem) / 60;
+        sec = static_cast<int>(rem) % 60;
+        is_neg = true;
+    } else {
+        min = static_cast<int>(pos) / 60;
+        sec = static_cast<int>(pos) % 60;
+        is_neg = false;
+    }
+    RetroFont::draw_led_clock(renderer, min, sec, is_neg, bx + 55, by + 38, Palette::LedGreen);
 
     // Track Number (small 7-seg)
     int cur_idx = core.get_playlist().get_current_index();
@@ -109,6 +122,13 @@ bool MainView::handle_mouse_down(int mx, int my, backend::CoreController& core, 
         m_dragging_window = true;
         m_drag_off_x = mx - bx;
         m_drag_off_y = my - by;
+        return true;
+    }
+
+    // LED Clock click (toggle elapsed / remaining countdown)
+    Rect clock_r = { bx + m_clock_hitbox.x, by + m_clock_hitbox.y, m_clock_hitbox.w, m_clock_hitbox.h };
+    if (clock_r.contains(mx, my)) {
+        m_time_remaining_mode = !m_time_remaining_mode;
         return true;
     }
 
