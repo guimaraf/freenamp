@@ -102,6 +102,8 @@ jobs:
 
       - name: Fetch project dependencies
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           .\compile\scripts\fetch_deps.ps1
 
