@@ -15,14 +15,14 @@
 > 
 > **Português**: O Freenamp é um projeto de código aberto desenvolvido estritamente para fins educacionais e de pesquisa técnica em interface gráfica retrô modular, processamento de sinal digital (DSP) e interoperabilidade multimídia em C++20, SDL2 e `libmpv`. O Freenamp **não** hospeda, armazena, distribui nem mantém em cache nenhum arquivo de áudio, vídeo ou conteúdo protegido por direitos autorais. Toda reprodução e resolução de streams ocorrem exclusivamente no lado do cliente por solicitação direta do usuário final através do `yt-dlp`. O usuário é o único responsável por assegurar a conformidade de seu uso com as leis de direitos autorais e os termos de serviço aplicáveis em sua jurisdição.
 
-### 🚀 Download (v1.0.2)
+### 🚀 Download (v1.0.3)
 
 | Platform | Package | Description |
 | :--- | :--- | :--- |
-| **Linux (x86_64)** | [freenamp-linux-x86_64.tar.gz](https://github.com/guimaraf/freenamp/releases/download/v1.0.2/freenamp-linux-x86_64.tar.gz) | 100% portable bundle with bundled libraries & `iniciar_freenamp.sh` launcher |
-| **Linux (x86_64)** | [Freenamp-x86_64.AppImage](https://github.com/guimaraf/freenamp/releases/download/v1.0.2/Freenamp-x86_64.AppImage) | Standalone single-file AppImage executable |
-| **Windows (x64)** | [freenamp-windows-x64.zip](https://github.com/guimaraf/freenamp/releases/download/v1.0.2/freenamp-windows-x64.zip) | Standalone portable bundle with isolated DLLs in `core/` |
-| **Checksums** | [SHA256SUMS.txt](https://github.com/guimaraf/freenamp/releases/download/v1.0.2/SHA256SUMS.txt) | Cryptographic verification |
+| **Linux (x86_64)** | [freenamp-linux-x86_64.tar.gz](https://github.com/guimaraf/freenamp/releases/download/v1.0.3/freenamp-linux-x86_64.tar.gz) | 100% portable bundle with bundled libraries & `iniciar_freenamp.sh` launcher |
+| **Linux (x86_64)** | [Freenamp-x86_64.AppImage](https://github.com/guimaraf/freenamp/releases/download/v1.0.3/Freenamp-x86_64.AppImage) | Standalone single-file AppImage executable |
+| **Windows (x64)** | [freenamp-windows-x64.zip](https://github.com/guimaraf/freenamp/releases/download/v1.0.3/freenamp-windows-x64.zip) | Standalone portable bundle with isolated DLLs in `core/` |
+| **Checksums** | [SHA256SUMS.txt](https://github.com/guimaraf/freenamp/releases/download/v1.0.3/SHA256SUMS.txt) | Cryptographic verification |
 
 ---
 
@@ -44,6 +44,7 @@
 - **Magnetic Window Docking**: Subwindows magnetically attract and snap together or to screen borders. Moving the main unit moves docked child windows together.
 - **YouTube Playlists & Mixes**: Seamlessly resolves single videos, full playlists, and YouTube radio mixes up to 50 tracks.
 - **Smart Token & CDN Expiration Renewal**: Automatically parses YouTube CDN expiration tokens (`expire=<timestamp>`). Expired streams are re-resolved transparently on-demand without user intervention.
+- **Upstream Extractor Updates (yt-dlp)**: Runs a single non-blocking check at startup against official yt-dlp releases. When an update is available, a subtle static "U" badge appears on the main panel title bar (redundant inner close button removed). Clicking "U" triggers background binary updates. Autonomous compilation (`build_freenamp.ps1`) and update (`update_ytdlp.ps1`) scripts included.
 - **Full Session & Geometry Persistence**: Automatically persists volume, balance, shuffle, repeat, countdown clock mode, selected track, internal window positions (`x`, `y`), playlist size (`w`, `h`), and visibility states in `cache/settings.json`.
 - **Stand-Alone Portable Package**: Packaged with internal DLLs isolated in a `core/` directory and standalone native Windows executable.
 
@@ -117,6 +118,7 @@ O **Freenamp** une a estética icônica retrô dos reprodutores de mídia cláss
 - **Acoplamento Magnético (Window Docking)**: As janelas internas se atraem e se encaixam magneticamente entre si e nas bordas do aplicativo. Ao mover o painel principal, as janelas acopladas movem-se juntas.
 - **Playlists e Mixes do YouTube**: Suporte completo a links de vídeos únicos, playlists convencionais e mixes automáticos gerados pelo YouTube (até 50 faixas).
 - **Renovação Automática de Links Expirados**: Analisa o parâmetro criptográfico `expire=` da CDN do Google. Se o link expirar de um dia para o outro, o Freenamp renova o stream em segundo plano automaticamente ao dar Play, sem exigir recarregamentos manuais.
+- **Verificação de Atualização do yt-dlp e Barra de Título Limpa**: Realiza uma única checagem assíncrona na inicialização. Quando houver nova versão na origem, exibe um indicador sutil e estático "U" no painel principal (o botão interno redundante "X" foi removido). Clique no "U" para atualizar em segundo plano. Scripts dedicados de compilação rápida (`build_freenamp.ps1`) e atualização (`update_ytdlp.ps1`) inclusos.
 - **Persistência Total de Sessão e Geometria**: Salva e restaura volume, balanço, modo shuffle, repeat, modo regressivo do relógio, faixa selecionada, posições (`x`, `y`), tamanho da playlist (`w`, `h`) e estados de visibilidade em `cache/settings.json`.
 - **Distribuição Portátil Standalone**: DLLs organizadas na pasta interna `core/` e executável Windows nativo com ícone em alta definição embutido.
 
