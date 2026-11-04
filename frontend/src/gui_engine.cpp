@@ -521,6 +521,9 @@ void GuiEngine::save_window_layout() {
         settings["windows"]["playlist"]["h"] = pb.h;
         settings["windows"]["playlist"]["visible"] = m_playlist_view.is_visible();
 
+        // Persist LED clock mode
+        settings["ui"]["time_remaining_mode"] = m_main_view.is_time_remaining_mode();
+
         std::ofstream ofs("cache/settings.json");
         if (ofs.is_open()) {
             ofs << settings.dump(2);
@@ -604,6 +607,14 @@ void GuiEngine::load_window_layout() {
 
             if (p.contains("visible") && p["visible"].is_boolean()) {
                 m_playlist_view.set_visible(p["visible"].get<bool>());
+            }
+        }
+
+        // Restore LED clock mode
+        if (settings.contains("ui") && settings["ui"].is_object()) {
+            const auto& ui = settings["ui"];
+            if (ui.contains("time_remaining_mode") && ui["time_remaining_mode"].is_boolean()) {
+                m_main_view.set_time_remaining_mode(ui["time_remaining_mode"].get<bool>());
             }
         }
     } catch (...) {}
