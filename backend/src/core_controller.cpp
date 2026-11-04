@@ -11,6 +11,37 @@ CoreController::CoreController(std::string ytdlp_path)
     : m_resolver(std::move(ytdlp_path)) {
 }
 
+CoreController::~CoreController() {
+    // Signal all background threads to exit cleanly
+    m_shutdown.store(true);
+    // Cancel any in-flight resolve
+    m_current_resolve_id++;
+
+    // Join all tracked threads
+    std::vector<std::thread> threads;
+    {
+        std::lock_guard<std::mutex> lock(m_threads_mutex);
+        threads = std::move(m_bg_threads);
+    }
+    for (auto& t : threads) {
+        if (t.joinable()) t.join();
+    }
+}
+
+void CoreController::launch_bg_thread(std::function<void()> fn) {
+    std::lock_guard<std::mutex> lock(m_threads_mutex);
+    // Reap finished threads before adding a new one
+    m_bg_threads.erase(
+        std::remove_if(m_bg_threads.begin(), m_bg_threads.end(),
+            [](std::thread& t) {
+                // A thread is "done" if it's not joinable (shouldn't happen here)
+                // We can't easily poll without detach; use a wrapper with done flag
+                return !t.joinable();
+            }),
+        m_bg_threads.end());
+    m_bg_threads.emplace_back(std::move(fn));
+}
+
 void CoreController::notify_event(const std::string& event_name) {
     if (m_event_cb) {
         m_event_cb(event_name);
@@ -40,6 +71,16 @@ void CoreController::save_session() {
         settings["selected_index"] = m_playlist.get_current_index();
         settings["ytdlp_compiled_version"] = YtResolver::get_compiled_version();
         settings["ytdlp_compiled_hash"] = YtResolver::get_compiled_hash();
+
+        // Persist equalizer state
+        const auto& eq = m_audio.get_equalizer();
+        settings["eq"]["enabled"] = eq.is_enabled();
+        settings["eq"]["preamp"] = eq.get_preamp();
+        nlohmann::json eq_bands = nlohmann::json::array();
+        for (size_t i = 0; i < EqualizerDsp::NUM_BANDS; ++i) {
+            eq_bands.push_back(eq.get_band_gain(i));
+        }
+        settings["eq"]["bands"] = eq_bands;
 
         std::ofstream ofs("cache/settings.json");
         if (ofs.is_open()) {
@@ -75,6 +116,26 @@ void CoreController::load_session() {
                     m_playlist.set_current_index(idx);
                 }
             }
+            // Restore equalizer state
+            if (settings.contains("eq") && settings["eq"].is_object()) {
+                const auto& eq_node = settings["eq"];
+                auto& eq = m_audio.get_equalizer();
+                if (eq_node.contains("enabled") && eq_node["enabled"].is_boolean()) {
+                    eq.set_enabled(eq_node["enabled"].get<bool>());
+                }
+                if (eq_node.contains("preamp") && eq_node["preamp"].is_number()) {
+                    eq.set_preamp(eq_node["preamp"].get<float>());
+                }
+                if (eq_node.contains("bands") && eq_node["bands"].is_array()) {
+                    const auto& bands = eq_node["bands"];
+                    for (size_t i = 0; i < EqualizerDsp::NUM_BANDS && i < bands.size(); ++i) {
+                        if (bands[i].is_number()) {
+                            eq.set_band_gain(i, bands[i].get<float>());
+                        }
+                    }
+                }
+                m_audio.apply_equalizer();
+            }
         }
 
         if (pl_loaded && !m_playlist.empty()) {
@@ -103,11 +164,13 @@ void CoreController::add_url(const std::string& url_or_id, bool play_immediately
     m_status_message = "Conectando ao YouTube...";
     notify_event("loading_start");
 
-    std::thread([this, url_or_id, type, play_immediately]() {
+    launch_bg_thread([this, url_or_id, type, play_immediately]() {
+        if (m_shutdown.load()) return;
         if (type == UrlType::Playlist) {
             m_status_message = "Carregando Playlist...";
             m_loading_progress = 30;
             auto pl = m_resolver.resolve_playlist(url_or_id);
+            if (m_shutdown.load()) return;
             if (pl.has_value() && !pl->tracks.empty()) {
                 m_loading_progress = 85;
                 bool was_empty = m_playlist.empty();
@@ -132,6 +195,7 @@ void CoreController::add_url(const std::string& url_or_id, bool play_immediately
             m_status_message = "Buscando metadados do video...";
             m_loading_progress = 35;
             auto track = m_resolver.resolve_track_info(url_or_id, true);
+            if (m_shutdown.load()) return;
             if (track.has_value()) {
                 m_loading_progress = 90;
                 bool was_empty = m_playlist.empty();
@@ -155,7 +219,7 @@ void CoreController::add_url(const std::string& url_or_id, bool play_immediately
         m_is_loading = false;
         m_loading_progress = 0;
         notify_event("loading_end");
-    }).detach();
+    });
 }
 
 void CoreController::play_current_playlist_track(bool force_re_resolve) {
@@ -189,12 +253,13 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
 
         std::string resolve_target = !track.original_url.empty() ? track.original_url : track.id;
 
-        std::thread([this, target = resolve_target, idx = m_playlist.get_current_index(), req_id]() {
+        launch_bg_thread([this, target = resolve_target, idx = m_playlist.get_current_index(), req_id]() {
+            if (m_shutdown.load()) return;
             m_loading_progress = 50;
             auto stream_url = m_resolver.resolve_stream_url(target);
 
-            if (m_current_resolve_id != req_id) {
-                return; // Requisicao substituida ou cancelada
+            if (m_shutdown.load() || m_current_resolve_id != req_id) {
+                return; // Shutdown or requisicao substituida/cancelada
             }
 
             if (stream_url.has_value() && !stream_url->empty()) {
@@ -220,7 +285,7 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
                 m_is_loading = false;
                 notify_event("loading_end");
             }
-        }).detach();
+        });
     }
 }
 
@@ -419,14 +484,15 @@ void CoreController::check_ytdlp_update_once() {
         return; // Guarantee strictly 1 check per session
     }
 
-    std::thread([this]() {
+    launch_bg_thread([this]() {
         try {
+            if (m_shutdown.load()) return;
             bool has_update = m_resolver.check_for_update();
-            if (has_update) {
+            if (!m_shutdown.load() && has_update) {
                 m_ytdlp_update_available.store(true);
             }
         } catch (...) {}
-    }).detach();
+    });
 }
 
 void CoreController::trigger_ytdlp_update() {
@@ -434,18 +500,17 @@ void CoreController::trigger_ytdlp_update() {
     m_ytdlp_update_available.store(false);
     m_status_message = "Atualizando yt-dlp...";
 
-    std::thread([this]() {
+    launch_bg_thread([this]() {
         try {
+            if (m_shutdown.load()) return;
             bool ok = m_resolver.update_ytdlp_binary();
-            if (ok) {
-                m_status_message = "yt-dlp atualizado!";
-            } else {
-                m_status_message = "Pronto";
+            if (!m_shutdown.load()) {
+                m_status_message = ok ? "yt-dlp atualizado!" : "Pronto";
             }
         } catch (...) {
-            m_status_message = "Pronto";
+            if (!m_shutdown.load()) m_status_message = "Pronto";
         }
-    }).detach();
+    });
 }
 
 } // namespace freenamp::backend

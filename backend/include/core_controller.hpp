@@ -7,6 +7,9 @@
 #include <functional>
 #include <memory>
 #include <atomic>
+#include <mutex>
+#include <vector>
+#include <thread>
 
 namespace freenamp::backend {
 
@@ -17,7 +20,9 @@ public:
 #else
     explicit CoreController(std::string ytdlp_path = "bin/yt-dlp");
 #endif
-    ~CoreController() = default;
+    ~CoreController();
+    CoreController(const CoreController&) = delete;
+    CoreController& operator=(const CoreController&) = delete;
 
     // High level actions
     void add_url(const std::string& url_or_id, bool play_immediately = true);
@@ -107,9 +112,16 @@ private:
     std::string m_channels = "STEREO";
     EventCallback m_event_cb;
 
+    // Shutdown token: set to true in destructor to cancel in-flight background threads
+    std::atomic<bool> m_shutdown{false};
+    std::mutex m_threads_mutex;
+    std::vector<std::thread> m_bg_threads; // Tracked background threads (joinable on shutdown)
+
     void notify_event(const std::string& event_name);
     void play_current_playlist_track(bool force_re_resolve = false);
     void handle_playback_error();
+    // Launches a background thread, registers it for clean join on shutdown
+    void launch_bg_thread(std::function<void()> fn);
     int m_track_retry_count = 0;
 };
 
