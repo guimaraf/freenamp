@@ -13,6 +13,16 @@ PlaylistManager::PlaylistManager()
 
 void PlaylistManager::add_track(const TrackMetadata& track) {
     std::lock_guard<std::mutex> lock(m_mutex);
+    // Deduplicate: skip if a track with the same id or original_url already exists
+    const std::string& dedup_key = track.id.empty() ? track.original_url : track.id;
+    if (!dedup_key.empty()) {
+        for (const auto& t : m_tracks) {
+            const std::string& existing_key = t.id.empty() ? t.original_url : t.id;
+            if (existing_key == dedup_key) {
+                return; // Already in playlist
+            }
+        }
+    }
     m_tracks.push_back(track);
     rebuild_shuffle_indices();
 }
@@ -20,6 +30,16 @@ void PlaylistManager::add_track(const TrackMetadata& track) {
 void PlaylistManager::add_playlist(const PlaylistMetadata& playlist) {
     std::lock_guard<std::mutex> lock(m_mutex);
     for (const auto& track : playlist.tracks) {
+        // Deduplicate per-track within playlists as well
+        const std::string& dedup_key = track.id.empty() ? track.original_url : track.id;
+        if (!dedup_key.empty()) {
+            bool found = false;
+            for (const auto& t : m_tracks) {
+                const std::string& existing_key = t.id.empty() ? t.original_url : t.id;
+                if (existing_key == dedup_key) { found = true; break; }
+            }
+            if (found) continue;
+        }
         m_tracks.push_back(track);
     }
     rebuild_shuffle_indices();
