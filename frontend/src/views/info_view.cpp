@@ -8,7 +8,8 @@ InfoView::InfoView(int x, int y) {
     m_bounds.y = y;
 }
 
-void InfoView::render(SDL_Renderer* renderer, backend::CoreController& core) {
+void InfoView::render(SDL_Renderer* renderer, backend::CoreController& core,
+                      bool updating, int progress, const std::string& message) {
     if (!m_visible) return;
 
     // 1. Window Frame with title FREENAMP INFO
@@ -20,6 +21,14 @@ void InfoView::render(SDL_Renderer* renderer, backend::CoreController& core) {
     // 2. LCD recessed box
     Rect lcd_box = { bx + 11, by + 20, 253, 42 };
     RetroWidgets::draw_recessed_box(renderer, lcd_box);
+
+    if (updating) {
+        RetroFont::draw_text(renderer, message, bx + 16, by + 24, Palette::TextActive, 1);
+        Rect bar = { bx + 16, by + 37, 180, 14 };
+        RetroWidgets::draw_progress_bar(renderer, bar, progress / 100.0f);
+        RetroFont::draw_text(renderer, std::to_string(progress) + "%", bx + 206, by + 40, Palette::LedGreen, 1);
+        return;
+    }
 
     if (core.has_status_error() && !core.is_loading()) {
         const auto status = core.get_status_text();

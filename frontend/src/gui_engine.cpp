@@ -430,7 +430,11 @@ void GuiEngine::render(backend::CoreController& core) {
     m_main_view.render(m_renderer, core);
 
     // 2. Render Info Window
+#ifdef _WIN32
+    m_info_view.render(m_renderer, core, m_updater.is_busy(), m_updater.progress(), m_updater.progress_message());
+#else
     m_info_view.render(m_renderer, core);
+#endif
 
     // 3. Render Equalizer Window
     m_eq_view.render(m_renderer, core);

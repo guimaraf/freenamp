@@ -5,6 +5,7 @@
 #include <SDL.h>
 #include <nlohmann/json.hpp>
 #include <chrono>
+#include <algorithm>
 #include <fstream>
 #include <stdexcept>
 #include <vector>
@@ -78,6 +79,13 @@ PortableUpdate::Result PortableUpdate::run(const std::filesystem::path& install,
         for (;;) {
             wait = WaitForSingleObject(process, 100);
             if (wait != WAIT_TIMEOUT) break;
+            try {
+                std::ifstream input(status, std::ios::binary);
+                auto state = nlohmann::json::parse(input);
+                if (state.value("state", "") == "progress") {
+                    m_progress.store(std::clamp(state.value("progress", 0), 0, 99));
+                }
+            } catch (...) {}
             if (cancelled && cancelled->load()) {
                 TerminateProcess(process, 1);
                 WaitForSingleObject(process, 2000);
@@ -137,11 +145,14 @@ bool PortableUpdate::open_menu(SDL_Window* window, backend::YtResolver& resolver
         }
     } else if (clicked == 1 || clicked == 2) {
         if (clicked == 2) m_ready = false;
+        m_progress.store(0);
+        m_progress_message = clicked == 1 ? "Atualizando YouTube..." : "Atualizando Freenamp...";
         SDL_SetWindowTitle(window, clicked == 1 ? "Freenamp - Atualizando YouTube..." : "Freenamp - Buscando atualizacao...");
         m_pending = std::async(std::launch::async, [this, install = m_install_dir, clicked, &resolver] {
             if (clicked == 2) return run(install, L"StageApp", &m_cancelled);
             auto result = run(install, L"StageExtractor", &m_cancelled);
             if (result.state != "ready") return result;
+            m_progress.store(90);
             resolver.run_while_idle([&] {
                 if (!m_cancelled.load()) result = run(install, L"ApplyExtractor");
             });

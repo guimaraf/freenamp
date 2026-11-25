@@ -124,6 +124,16 @@ try {
     Assert ((Get-FileHash -LiteralPath (Join-Path $script:Install 'bin/deno.exe')).Hash -eq (Get-FileHash -LiteralPath $fixtureExe).Hash) 'Installed Deno hash matches verified stage'
     Assert ((Run-Updater 'ApplyExtractor').state -eq 'error') 'Consumed extractor plan cannot be reapplied'
     Assert ((Run-Updater 'UpdateExtractor').state -eq 'success') 'Combined CLI extractor action still works'
+    $denoVersionExe = Join-Path $testRoot 'deno-version.exe'
+    Add-Type -TypeDefinition 'public class FreenampDenoVersion { public static void Main() { System.Console.WriteLine("deno 2.9.8 (stable)"); } }' -OutputAssembly $denoVersionExe -OutputType ConsoleApplication
+    Copy-Item -LiteralPath $denoVersionExe -Destination (Join-Path $script:Install 'bin/deno.exe') -Force
+    $global:FreenampTestYtRelease | Add-Member -NotePropertyName tag_name -NotePropertyValue '2026.11.25.000000'
+    $global:FreenampTestDenoRelease | Add-Member -NotePropertyName tag_name -NotePropertyValue 'v2.9.8'
+    $global:FreenampTestDownloads.Clear()
+    Assert ((Run-Updater 'StageExtractor').state -eq 'up-to-date') 'Current yt-dlp and Deno skip downloads'
+    '{"version":"1.1.0"}' | Set-Content -LiteralPath (Join-Path $script:Install 'release-info.json')
+    $global:FreenampTestRelease.tag_name = 'v1.1.0'
+    Assert ((Run-Updater 'StageApp').state -eq 'up-to-date') 'Current application skips downloads'
     Write-Host 'All offline updater tests passed.'
 } finally {
     $resolved = [IO.Path]::GetFullPath($testRoot)

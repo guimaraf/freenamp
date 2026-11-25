@@ -10,8 +10,8 @@ $ErrorActionPreference = 'Stop'
 $script:Repository = 'guimaraf/freenamp'
 $script:Lock = $null
 $resumeApp = $false
-function Write-Status($State, $Message, $Version = '') {
-    $result = @{ state=$State; message=$Message; version=$Version } | ConvertTo-Json -Compress
+function Write-Status($State, $Message, $Version = '', $Progress = 0) {
+    $result = @{ state=$State; message=$Message; version=$Version; progress=$Progress } | ConvertTo-Json -Compress
     if ($StatusFile) {
         $parent = Split-Path -Parent $StatusFile
         [IO.Directory]::CreateDirectory($parent) | Out-Null
@@ -129,16 +129,34 @@ function Remove-StagedDirectory($Path) {
     Remove-Item -LiteralPath $full -Recurse -Force
 }
 function Stage-Extractor {
+    Write-Status 'progress' 'Verificando versoes' '' 5 | Out-Null
+    $yt = Get-Release 'yt-dlp/yt-dlp-nightly-builds'
+    $deno = Get-Release 'denoland/deno'
+    $installedYt = Join-Path $InstallDir 'bin/yt-dlp.exe'
+    $installedDeno = Join-Path $InstallDir 'bin/deno.exe'
+    if ($yt.tag_name -match '^\d{4}\.\d{2}\.\d{2}\.\d+$' -and
+        $deno.tag_name -match '^v?(\d+\.\d+\.\d+)$' -and
+        (Test-Path -LiteralPath $installedYt -PathType Leaf) -and
+        (Test-Path -LiteralPath $installedDeno -PathType Leaf)) {
+        $currentYt = & $installedYt --ignore-config --version 2>$null
+        $ytText = [string]($currentYt | Select-Object -First 1)
+        $ytOk = $LASTEXITCODE -eq 0 -and $ytText -match '^\d{4}\.\d{2}\.\d{2}\.\d+$' -and [version]$ytText -ge [version]$yt.tag_name
+        $currentDeno = & $installedDeno --version 2>$null
+        $denoText = [string]($currentDeno | Select-Object -First 1)
+        $denoOk = $LASTEXITCODE -eq 0 -and $denoText -match '^deno\s+(\d+\.\d+\.\d+)(\s|$)' -and [version]$Matches[1] -ge [version]$deno.tag_name.TrimStart('v')
+        if ($ytOk -and $denoOk) { return @{ current=$true; version=$yt.tag_name } }
+    }
     $workName = 'extractor-' + [guid]::NewGuid().ToString('N')
     $work = Join-Path $stage $workName
     [IO.Directory]::CreateDirectory($work) | Out-Null
     $manifest = Join-Path $stage 'extractor-plan.json'
     if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest -Force }
     try {
-        $yt = Get-Release 'yt-dlp/yt-dlp-nightly-builds'
+        Write-Status 'progress' 'Baixando yt-dlp' '' 20 | Out-Null
         Verified-Asset $yt 'yt-dlp.exe' (Join-Path $work 'yt-dlp.exe') 'SHA2-256SUMS'
-        $deno = Get-Release 'denoland/deno'
+        Write-Status 'progress' 'Baixando Deno' '' 55 | Out-Null
         Verified-Asset $deno 'deno-x86_64-pc-windows-msvc.zip' (Join-Path $work 'deno.zip') 'deno-x86_64-pc-windows-msvc.zip.sha256sum'
+        Write-Status 'progress' 'Verificando arquivos' '' 80 | Out-Null
         Expand-SafeZip (Join-Path $work 'deno.zip') (Join-Path $work 'deno')
         $ytVersion = & (Join-Path $work 'yt-dlp.exe') --version
         if ($LASTEXITCODE -ne 0 -or -not $ytVersion) { throw 'Downloaded yt-dlp failed validation.' }
@@ -150,7 +168,7 @@ function Stage-Extractor {
         )
         $version = [string]($ytVersion | Select-Object -First 1)
         @{installDir=$InstallDir; payload=$workName; version=$version; files=$files} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifest -Encoding UTF8
-        return $version
+        return @{ current=$false; version=$version }
     } catch { Remove-StagedDirectory $work; throw }
 }
 function Apply-Extractor {
@@ -209,6 +227,7 @@ try {
             else { Write-Status 'up-to-date' 'Freenamp atualizado.' $current.ToString() }
         }
         'StageApp' {
+            Write-Status 'progress' 'Verificando versao' '' 5 | Out-Null
             $current = Read-AppVersion $InstallDir; $latest = Latest-App
             if ($latest.version -le $current) { Write-Status 'up-to-date' 'Freenamp atualizado.' $current.ToString(); break }
             if (Test-Path -LiteralPath $planFile) {
@@ -219,7 +238,9 @@ try {
             $payloadName = 'payload-' + [guid]::NewGuid().ToString('N')
             $payload = Join-Path $stage $payloadName
             $archive = Join-Path $stage 'application.zip'
+            Write-Status 'progress' 'Baixando Freenamp' '' 20 | Out-Null
             Verified-Asset $latest.release 'freenamp-windows-x64.zip' $archive 'SHA256SUMS.txt'
+            Write-Status 'progress' 'Verificando pacote' '' 80 | Out-Null
             Expand-SafeZip $archive $payload
             foreach ($required in @('freenamp.exe','core/libfreenamp_core.dll','core/SDL2.dll','core/libmpv-2.dll','freenamp-update.ps1','release-info.json')) {
                 if (-not (Test-Path -LiteralPath (Join-Path $payload $required) -PathType Leaf)) { throw "Incomplete application payload: $required" }
@@ -280,17 +301,21 @@ try {
             try { Remove-StagedDirectory $payload; Remove-StagedDirectory $backup } catch { }
         }
         'StageExtractor' {
-            $version = Stage-Extractor
-            Write-Status 'ready' 'yt-dlp nightly e Deno verificados e prontos para instalar.' $version
+            $staged = Stage-Extractor
+            if ($staged.current) { Write-Status 'up-to-date' 'YouTube ja esta atualizado.' $staged.version }
+            else { Write-Status 'ready' 'yt-dlp nightly e Deno verificados e prontos para instalar.' $staged.version }
         }
         'ApplyExtractor' {
             $version = Apply-Extractor
             Write-Status 'success' 'yt-dlp nightly e Deno atualizados com SHA256 verificado.' $version
         }
         'UpdateExtractor' {
-            $version = Stage-Extractor
-            $version = Apply-Extractor
-            Write-Status 'success' 'yt-dlp nightly e Deno atualizados com SHA256 verificado.' $version
+            $staged = Stage-Extractor
+            if ($staged.current) { Write-Status 'up-to-date' 'YouTube ja esta atualizado.' $staged.version }
+            else {
+                $version = Apply-Extractor
+                Write-Status 'success' 'yt-dlp nightly e Deno atualizados com SHA256 verificado.' $version
+            }
         }
     }
 } catch {

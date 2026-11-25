@@ -14,7 +14,8 @@ public:
     InfoView(int x = 20, int y = 140);
     ~InfoView() = default;
 
-    void render(SDL_Renderer* renderer, backend::CoreController& core);
+    void render(SDL_Renderer* renderer, backend::CoreController& core,
+                bool updating = false, int progress = 0, const std::string& message = {});
 
     bool handle_mouse_down(int mx, int my, backend::CoreController& core, bool& close_requested);
     void handle_mouse_up(int mx, int my);
