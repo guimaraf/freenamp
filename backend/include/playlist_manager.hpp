@@ -31,7 +31,8 @@ public:
     ImportResult add_playlist(const PlaylistMetadata& playlist);
     static std::string track_identity(const TrackMetadata& track);
     int find_track(const std::string& identity) const;
-    bool set_stream_for_identity(const std::string& identity, const TrackMetadata& resolved);
+    bool set_stream_for_identity(const std::string& identity, const TrackMetadata& resolved,
+                                 bool only_if_needed = false);
     bool remove_track(size_t index);
     bool remove_tracks(const std::vector<size_t>& indices);
     void clear();

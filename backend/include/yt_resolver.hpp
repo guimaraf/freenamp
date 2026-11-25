@@ -36,6 +36,8 @@ enum class UrlType {
     Unknown
 };
 
+enum class AudioFormatPreference { Best, CompatibleAac };
+
 class YtResolver {
 public:
     explicit YtResolver(std::string ytdlp_path = "compile/bin/yt-dlp.exe");
@@ -55,7 +57,8 @@ public:
 
     // Synchronous resolution methods
     std::optional<TrackMetadata> resolve_track_info(const std::string& url_or_id, bool fetch_stream_url = true,
-                                                    bool refresh = false);
+                                                    bool refresh = false,
+                                                    AudioFormatPreference format = AudioFormatPreference::Best);
     std::optional<std::string> resolve_stream_url(const std::string& video_id_or_url);
     std::optional<PlaylistMetadata> resolve_playlist(const std::string& playlist_url);
 

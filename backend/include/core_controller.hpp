@@ -138,12 +138,13 @@ private:
     void refresh_loading();
 
     void notify_event(const std::string& event_name);
-    void start_playlist_stream(const TrackMetadata& track);
-    void play_current_playlist_track(bool force_re_resolve = false);
+    enum class StreamAttempt { Cached, Preferred, CompatibleAac };
+    void start_playlist_stream(const TrackMetadata& track, StreamAttempt attempt);
+    void play_current_playlist_track(StreamAttempt attempt = StreamAttempt::Cached);
     void handle_playback_error();
     // Launches a background thread, registers it for clean join on shutdown
     bool launch_bg_thread(std::function<void()> fn);
-    int m_track_retry_count = 0;
+    StreamAttempt m_stream_attempt = StreamAttempt::Cached;
 };
 
 } // namespace freenamp::backend

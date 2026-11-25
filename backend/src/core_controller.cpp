@@ -269,7 +269,8 @@ void CoreController::add_url(const std::string& input, bool play_immediately) {
     }
 }
 
-void CoreController::start_playlist_stream(const TrackMetadata& track) {
+void CoreController::start_playlist_stream(const TrackMetadata& track, StreamAttempt attempt) {
+    m_stream_attempt = attempt;
     m_status_message = "Tocando: " + track.title;
     m_loading_progress = 100;
     m_status_error = !m_audio.load_url(track.stream_url, true, track.http_headers);
@@ -281,7 +282,7 @@ void CoreController::start_playlist_stream(const TrackMetadata& track) {
     }
 }
 
-void CoreController::play_current_playlist_track(bool force_re_resolve) {
+void CoreController::play_current_playlist_track(StreamAttempt attempt) {
     if (m_shutdown.load()) return;
     m_status_error = false;
     const uint64_t request = ++m_current_resolve_id; // Also cancels old results on a cached switch.
@@ -292,34 +293,40 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
     const auto track = *current;
     const auto identity = PlaylistManager::track_identity(track);
     m_current_title = track.title;
-    if (!force_re_resolve && track.is_resolved && !track.stream_url.empty() && !track.http_headers.empty() &&
+    if (attempt == StreamAttempt::Cached && track.is_resolved && !track.stream_url.empty() && !track.http_headers.empty() &&
         !YtResolver::is_stream_url_expired(track.stream_url)) {
-        start_playlist_stream(track);
+        start_playlist_stream(track, StreamAttempt::Cached);
         return;
     }
     m_audio.stop();
     m_resolving_track = true;
     refresh_loading();
     m_loading_progress = 25;
-    m_status_message = (force_re_resolve || !track.stream_url.empty())
-        ? "Renovando link de áudio..." : "Carregando stream de audio...";
+    if (attempt == StreamAttempt::CompatibleAac) {
+        m_status_message = "Tentando formato AAC...";
+    } else {
+        m_status_message = (attempt == StreamAttempt::Preferred || !track.stream_url.empty())
+            ? "Renovando link de áudio..." : "Carregando stream de audio...";
+    }
     notify_event("track_loading");
     const bool has_video_id = track.id.size() == 11 && YtResolver::detect_url_type(track.id) == UrlType::SingleVideo;
     const auto target = (has_video_id || track.original_url.empty()) ? track.id : track.original_url;
-    if (!launch_bg_thread([this, target, identity, request, track, force_re_resolve]() {
+    if (!launch_bg_thread([this, target, identity, request, track, attempt]() {
         std::optional<TrackMetadata> stream;
         std::string error;
         try {
             if (!m_shutdown.load()) {
-                if (force_re_resolve) {
+                if (attempt == StreamAttempt::Preferred) {
                     m_resolver.remove_from_cache(track.id);
                     m_resolver.remove_from_cache(track.original_url);
                 }
-                stream = m_resolver.resolve_track_info(target, true, force_re_resolve);
+                const auto format = attempt == StreamAttempt::CompatibleAac
+                    ? AudioFormatPreference::CompatibleAac : AudioFormatPreference::Best;
+                stream = m_resolver.resolve_track_info(target, true, attempt != StreamAttempt::Cached, format);
                 error = m_resolver.get_last_error();
             }
         } catch (...) { error = "Falha ao resolver áudio"; }
-        post_completion([this, stream = std::move(stream), error, identity, request](bool allow_playback) {
+        post_completion([this, stream = std::move(stream), error, identity, request, attempt](bool allow_playback) {
             if (!allow_playback || request != m_current_resolve_id.load()) return;
             m_resolving_track = false;
             refresh_loading();
@@ -328,7 +335,8 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
             if (stream && stream->is_resolved && m_playlist.set_stream_for_identity(identity, *stream)) {
                 const auto updated = m_playlist.get_current_track();
                 if (updated && PlaylistManager::track_identity(*updated) == identity) {
-                    start_playlist_stream(*updated);
+                    start_playlist_stream(*updated, attempt == StreamAttempt::CompatibleAac
+                        ? StreamAttempt::CompatibleAac : StreamAttempt::Preferred);
                 }
             } else {
                 m_status_error = true;
@@ -348,7 +356,6 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
 }
 
 void CoreController::play_track_index(size_t index) {
-    m_track_retry_count = 0;
     if (m_playlist.set_current_index(static_cast<int>(index))) {
         play_current_playlist_track();
     }
@@ -358,7 +365,6 @@ void CoreController::play() {
     if (m_audio.get_state() == PlaybackState::Paused) {
         m_audio.play();
     } else if (m_playlist.get_current_index() >= 0) {
-        m_track_retry_count = 0;
         play_current_playlist_track();
     } else if (!m_playlist.empty()) {
         play_track_index(0);
@@ -384,13 +390,11 @@ void CoreController::stop() {
     refresh_loading();
     m_loading_progress = 0;
     m_current_resolve_id++;
-    m_track_retry_count = 0;
     m_status_message = "Parado";
     notify_event("playback_stopped");
 }
 
 void CoreController::next() {
-    m_track_retry_count = 0;
     auto next_tr = m_playlist.next();
     if (next_tr.has_value()) {
         play_current_playlist_track();
@@ -400,7 +404,6 @@ void CoreController::next() {
 }
 
 void CoreController::previous() {
-    m_track_retry_count = 0;
     auto prev_tr = m_playlist.previous();
     if (prev_tr.has_value()) {
         play_current_playlist_track();
@@ -494,18 +497,16 @@ void CoreController::handle_playback_error() {
     auto current = m_playlist.get_current_track();
     if (!current.has_value()) return;
 
-    if (m_track_retry_count < 1) {
-        m_track_retry_count++;
-        std::cerr << "[CoreController] URL expirada ou inválida ao tocar (" << current->title
-                  << "). Invalidando cache e re-resolvendo link fresco...\n";
-        int cur_idx = m_playlist.get_current_index();
-        if (cur_idx >= 0) {
-            m_playlist.set_track_stream_url(static_cast<size_t>(cur_idx), "");
-        }
-        play_current_playlist_track(true);
+    m_playlist.set_track_stream_url(static_cast<size_t>(m_playlist.get_current_index()), "");
+    if (m_stream_attempt != StreamAttempt::CompatibleAac) {
+        const auto next_attempt = m_stream_attempt == StreamAttempt::Cached
+            ? StreamAttempt::Preferred : StreamAttempt::CompatibleAac;
+        std::cerr << "[CoreController] Falha ao abrir " << current->title
+                  << (next_attempt == StreamAttempt::Preferred
+                      ? ". Renovando link preferido.\n" : ". Tentando formato AAC.\n");
+        play_current_playlist_track(next_attempt);
     } else {
         std::cerr << "[CoreController] Falha permanente ao carregar faixa (" << current->title << ").\n";
-        m_track_retry_count = 0;
         m_status_error = true;
         m_status_message = "Erro ao reproduzir faixa";
         m_resolving_track = false;

@@ -46,10 +46,15 @@ int PlaylistManager::find_track(const std::string& identity) const {
     return -1;
 }
 
-bool PlaylistManager::set_stream_for_identity(const std::string& identity, const TrackMetadata& resolved) {
+bool PlaylistManager::set_stream_for_identity(const std::string& identity, const TrackMetadata& resolved,
+                                             bool only_if_needed) {
     std::lock_guard<std::mutex> lock(m_mutex);
     for (auto& track : m_tracks) {
         if (track_identity(track) == identity) {
+            if (only_if_needed && track.is_resolved && !track.stream_url.empty() && !track.http_headers.empty() &&
+                !YtResolver::is_stream_url_expired(track.stream_url)) {
+                return false;
+            }
             track.stream_url = resolved.stream_url;
             track.is_resolved = resolved.is_resolved;
             track.http_headers = resolved.http_headers;
@@ -487,7 +492,7 @@ void PlaylistManager::apply_prefetch_result() {
     if (!m_prefetch_done.load()) return;
     if (m_prefetch_thread.joinable()) m_prefetch_thread.join();
     if (!m_prefetch_shutdown && m_prefetch_result && m_prefetch_result->is_resolved) {
-        set_stream_for_identity(m_prefetch_identity, *m_prefetch_result);
+        set_stream_for_identity(m_prefetch_identity, *m_prefetch_result, true);
     } else {
         // A failing extractor must not launch a new request every UI frame.
         m_prefetch_retry_after = std::chrono::steady_clock::now() + std::chrono::seconds(30);

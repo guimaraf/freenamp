@@ -17,6 +17,7 @@ constexpr auto next_id = "djV11Xbc914";
 constexpr auto bad_id = "badExample1";
 constexpr auto first_stream = "https://audio.invalid/first";
 constexpr auto next_stream = "https://audio.invalid/next";
+constexpr auto compatible_stream = "https://audio.invalid/compatible";
 
 int imitate_extractor(int argc, char** argv) {
     const std::string url = argv[argc - 1];
@@ -26,13 +27,17 @@ int imitate_extractor(int argc, char** argv) {
     }
     std::this_thread::sleep_for(120ms);
     const bool first = url.find(first_id) != std::string::npos;
+    const bool compatible = std::any_of(argv, argv + argc, [](const std::string& item) {
+        return item.starts_with("139/") && item.find("[acodec^=mp4a]") != std::string::npos;
+    });
     if (std::any_of(argv, argv + argc, [](const std::string& item) { return item == "-g"; })) {
         std::cout << (first ? first_stream : next_stream) << '\n';
     } else {
         std::cout << "{\"id\":\"" << (first ? first_id : next_id)
                   << "\",\"title\":\"Playable\",\"duration\":120,\"url\":\""
-                  << (first ? first_stream : next_stream)
-                  << "\",\"http_headers\":{\"User-Agent\":\"Freenamp fixture\"}}\n";
+                  << (compatible ? compatible_stream : (first ? first_stream : next_stream))
+                  << "\",\"http_headers\":{\"User-Agent\":\""
+                  << (compatible ? "Freenamp AAC fixture" : "Freenamp fixture") << "\"}}\n";
     }
     return 0;
 }
@@ -69,6 +74,11 @@ int main(int argc, char** argv) {
     assert(playlist.get_track(1)->id == next_id);
     assert(playlist.get_track(0)->http_headers.at("User-Agent") == "Freenamp fixture");
     assert(core.get_state() == PlaybackState::Stopped);
+    const auto compatible = core.get_resolver().resolve_track_info(first_id, true, false, AudioFormatPreference::CompatibleAac);
+    assert(compatible && compatible->stream_url == compatible_stream);
+    assert(compatible->http_headers.at("User-Agent") == "Freenamp AAC fixture");
+    const auto preferred = core.get_resolver().resolve_track_info(first_id);
+    assert(preferred && preferred->stream_url == first_stream);
 
     const auto added = playlist.add_track(*playlist.get_track(0));
     assert(added == 0 && playlist.size() == 2);

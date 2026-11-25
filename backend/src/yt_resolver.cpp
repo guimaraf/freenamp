@@ -499,15 +499,17 @@ void YtResolver::run_while_idle(const std::function<void()>& task) const {
     task();
 }
 
-std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& url_or_id, bool fetch_stream_url, bool refresh) {
+std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& url_or_id, bool fetch_stream_url,
+                                                            bool refresh, AudioFormatPreference format) {
     last_resolver_error = nullptr;
+    const bool compatible_audio = fetch_stream_url && format == AudioFormatPreference::CompatibleAac;
     std::string clean_url = sanitize_url(url_or_id);
     if (detect_url_type(clean_url) == UrlType::Unknown) {
         last_resolver_error = "Informe uma URL ou ID do YouTube";
         return std::nullopt;
     }
 
-    if (!refresh) {
+    if (!refresh && !compatible_audio) {
         std::lock_guard<std::mutex> lock(m_cache_mutex);
         auto it = m_metadata_cache.find(clean_url);
         if (it != m_metadata_cache.end()) {
@@ -530,7 +532,9 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
 
     if (fetch_stream_url) {
         args.push_back("-f");
-        args.push_back("ba/b");
+        args.push_back(compatible_audio
+            ? "139/ba[protocol=https][ext=m4a][acodec^=mp4a]"
+            : "ba/b");
     }
 
     args.emplace_back("--");
@@ -572,6 +576,8 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
             }
         }
 
+        // Keep the alternate format in the playlist, without changing the preferred resolver cache.
+        if (compatible_audio) return track;
         std::lock_guard<std::mutex> lock(m_cache_mutex);
         if (track.is_resolved) {
             m_stream_url_cache[track.id] = track.stream_url;
