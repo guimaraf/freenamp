@@ -13,8 +13,8 @@ namespace freenamp::frontend {
 
 class PortableUpdate {
 public:
-    bool open_menu(SDL_Window* window, backend::YtResolver& resolver);
-    void update(SDL_Window* window);
+    void open_menu();
+    bool update(SDL_Window* window, backend::YtResolver& resolver);
     void restore_result(SDL_Window* window);
     void shutdown() { m_cancelled.store(true); }
     bool is_busy() const { return m_pending.valid(); }
@@ -22,21 +22,28 @@ public:
     std::string progress_message() const { return m_progress_message; }
 
 private:
-    struct Result {
+    struct Status {
         std::string state;
         std::string message;
         std::string version;
     };
 
+    struct Result : Status {
+        Status app;
+        Status extractor;
+    };
+
     std::filesystem::path m_install_dir = std::filesystem::current_path();
     std::atomic<bool> m_cancelled{false};
-    std::future<Result> m_pending;
     bool m_ready = false;
+    bool m_checking = false;
     std::atomic<int> m_progress{0};
     std::string m_progress_message;
-    std::string m_message;
+    std::string m_prepared_version;
+    std::future<Result> m_pending;
 
     static Result read_result(const std::filesystem::path& file);
+    bool show_menu(SDL_Window* window, backend::YtResolver& resolver, const Result& result);
     Result run(const std::filesystem::path& install, const std::wstring& action,
                const std::atomic<bool>* cancelled = nullptr);
     static void show_message(SDL_Window* window, const std::string& message, bool error = false);

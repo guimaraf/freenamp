@@ -58,7 +58,15 @@ PortableUpdate::Result PortableUpdate::read_result(const std::filesystem::path& 
     try {
         std::ifstream input(file, std::ios::binary);
         auto data = nlohmann::json::parse(input);
-        return {data.value("state", "error"), data.value("message", ""), data.value("version", "")};
+        auto status = [](const nlohmann::json& value) -> Status {
+            return {value.value("state", "error"), value.value("message", ""), value.value("version", "")};
+        };
+        Result result{status(data)};
+        if (result.state == "checked") {
+            result.app = status(data.at("app"));
+            result.extractor = status(data.at("extractor"));
+        }
+        return result;
     } catch (...) {
         return {"error", "O atualizador terminou sem informar o resultado.", {}};
     }
@@ -112,25 +120,30 @@ void PortableUpdate::show_message(SDL_Window* window, const std::string& message
                              "Atualizacoes do Freenamp", message.c_str(), window);
 }
 
-bool PortableUpdate::open_menu(SDL_Window* window, backend::YtResolver& resolver) {
-    if (m_pending.valid()) {
-        show_message(window, "O atualizador esta trabalhando em segundo plano.");
-        return false;
-    }
+void PortableUpdate::open_menu() {
+    if (m_pending.valid()) return;
+    m_progress.store(0);
+    m_progress_message = "Verificando atualizacoes...";
+    m_pending = std::async(std::launch::async, [this] {
+        return run(m_install_dir, L"CheckUpdates", &m_cancelled);
+    });
+    m_checking = true;
+}
 
-    constexpr SDL_MessageBoxButtonData buttons[] = {
+bool PortableUpdate::show_menu(SDL_Window* window, backend::YtResolver& resolver, const Result& result) {
+    std::vector<SDL_MessageBoxButtonData> buttons{
         {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Fechar"},
-        {0, 1, "Atualizar YouTube"},
-        {0, 2, "Atualizar Freenamp"},
-        {0, 3, "Reiniciar e aplicar"},
     };
-    const std::string description = "Freenamp " FREENAMP_VERSION
-        "  |  Atualizacoes para esta pasta portatil.\n"
-        "O YouTube pode ser atualizado durante a reproducao.\n"
-        "A instalacao de uma nova versao do Freenamp requer reiniciar."
-        + (m_message.empty() ? std::string{} : "\n\n" + m_message);
+    if (result.extractor.state == "available") buttons.push_back({0, 1, "YouTube"});
+    if (m_ready) buttons.push_back({0, 3, "Reiniciar"});
+    else if (result.app.state == "available") buttons.push_back({0, 2, "Freenamp"});
+
+    std::string description = "Versao instalada do Freenamp: " FREENAMP_VERSION "\n\n";
+    description += m_ready ? "Freenamp " + m_prepared_version + " pronto para instalar." : result.app.message;
+    if (!result.extractor.message.empty()) description += "\n" + result.extractor.message;
     const SDL_MessageBoxData dialog{
-        SDL_MESSAGEBOX_INFORMATION, window, "Atualizacoes", description.c_str(), m_ready ? 4 : 3, buttons, nullptr
+        SDL_MESSAGEBOX_INFORMATION, window, "Atualizacoes", description.c_str(),
+        static_cast<int>(buttons.size()), buttons.data(), nullptr
     };
     int clicked = 0;
     if (SDL_ShowMessageBox(&dialog, &clicked) != 0) return false;
@@ -162,19 +175,28 @@ bool PortableUpdate::open_menu(SDL_Window* window, backend::YtResolver& resolver
     return false;
 }
 
-void PortableUpdate::update(SDL_Window* window) {
+bool PortableUpdate::update(SDL_Window* window, backend::YtResolver& resolver) {
     if (!m_pending.valid() ||
-        m_pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        m_pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
+    const bool checking = m_checking;
+    m_checking = false;
     try {
         auto result = m_pending.get();
-        if (result.state == "ready") m_ready = true;
-        m_message = result.message + (result.version.empty() ? "" : "\nVersao: " + result.version);
+        if (checking && (result.state == "checked" || m_ready)) {
+            return show_menu(window, resolver, result);
+        }
+        if (result.state == "ready") {
+            m_ready = true;
+            m_prepared_version = result.version;
+        }
+        const auto message = result.message + (result.version.empty() ? "" : "\nVersao: " + result.version);
         SDL_SetWindowTitle(window, m_ready ? "Freenamp - Atualizacao pronta (U)" : "Freenamp");
-        show_message(window, m_message, result.state == "error");
+        show_message(window, message, result.state == "error");
     } catch (const std::exception& error) {
         SDL_SetWindowTitle(window, "Freenamp");
         show_message(window, error.what(), true);
     }
+    return false;
 }
 
 void PortableUpdate::restore_result(SDL_Window* window) {

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('CheckApp','StageApp','ApplyApp','StageExtractor','ApplyExtractor','UpdateExtractor')][string]$Action = 'CheckApp',
+    [ValidateSet('CheckApp','CheckExtractor','CheckUpdates','StageApp','ApplyApp','StageExtractor','ApplyExtractor','UpdateExtractor')][string]$Action = 'CheckApp',
     [Parameter(Mandatory=$true)][string]$InstallDir,
     [string]$StatusFile,
     [int]$ParentPid = 0
@@ -11,7 +11,10 @@ $script:Repository = 'guimaraf/freenamp'
 $script:Lock = $null
 $resumeApp = $false
 function Write-Status($State, $Message, $Version = '', $Progress = 0) {
-    $result = @{ state=$State; message=$Message; version=$Version; progress=$Progress } | ConvertTo-Json -Compress
+    Write-StatusObject @{ state=$State; message=$Message; version=$Version; progress=$Progress }
+}
+function Write-StatusObject($Value) {
+    $result = $Value | ConvertTo-Json -Depth 5 -Compress
     if ($StatusFile) {
         $parent = Split-Path -Parent $StatusFile
         [IO.Directory]::CreateDirectory($parent) | Out-Null
@@ -32,10 +35,34 @@ function Api-Headers {
     return $headers
 }
 function Get-Release($Repository, $Tag = 'latest') {
-    if ($Tag -ne 'latest') { $Tag = 'tags/' + [uri]::EscapeDataString($Tag) }
-    Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/$Tag" -Headers (Api-Headers) -TimeoutSec 60
+    if ($env:GITHUB_TOKEN) {
+        if ($Tag -ne 'latest') { $Tag = 'tags/' + [uri]::EscapeDataString($Tag) }
+        return Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/$Tag" -Headers (Api-Headers) -TimeoutSec 60
+    }
+    if ($Tag -ne 'latest' -or $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Invalid public release request.' }
+    $tagName = Get-PublicTag $Repository
+    return [pscustomobject]@{tag_name=$tagName; draft=$false; prerelease=$false; publicRepository=$Repository; assets=@()}
+}
+function Get-PublicTag($Repository) {
+    $request = [Net.HttpWebRequest]::Create("https://github.com/$Repository/releases/latest")
+    $request.AllowAutoRedirect = $false
+    $request.UserAgent = 'Freenamp-Updater'
+    $request.Timeout = 60000
+    $response = $request.GetResponse()
+    try {
+        $location = [string]$response.Headers['Location']
+        $pattern = '^https://github\.com/' + [regex]::Escape($Repository) + '/releases/tag/([A-Za-z0-9._-]+)$'
+        if ($location -notmatch $pattern) { throw 'Invalid latest release redirect.' }
+        $tagName = $Matches[1]
+    } finally { $response.Dispose() }
+    return $tagName
 }
 function Download-Asset($Asset, $Destination) {
+    if ($Asset.publicUrl) {
+        Invoke-WebRequest -UseBasicParsing -Uri $Asset.publicUrl -OutFile $Destination -TimeoutSec 300 | Out-Null
+        if (-not (Test-Path -LiteralPath $Destination) -or (Get-Item -LiteralPath $Destination).Length -eq 0) { throw 'Empty download.' }
+        return
+    }
     if (-not $Asset -or $Asset.url -notmatch '^https://api\.github\.com/repos/[^/]+/[^/]+/releases/assets/\d+$') { throw 'Invalid GitHub release asset.' }
     $headers = Api-Headers
     $headers.Accept = 'application/octet-stream'
@@ -43,6 +70,11 @@ function Download-Asset($Asset, $Destination) {
     if (-not (Test-Path -LiteralPath $Destination) -or (Get-Item -LiteralPath $Destination).Length -eq 0) { throw 'Empty download.' }
 }
 function Verified-Asset($Release, $Name, $Destination, $ChecksumName = 'SHA256SUMS') {
+    if ($Release.publicRepository) {
+        if ($Release.tag_name -notmatch '^[A-Za-z0-9._-]+$' -or $Name -notmatch '^[A-Za-z0-9._-]+$' -or $ChecksumName -notmatch '^[A-Za-z0-9._-]+$') { throw 'Invalid public release asset.' }
+        $base = 'https://github.com/' + $Release.publicRepository + '/releases/download/' + $Release.tag_name + '/'
+        $Release.assets = @([pscustomobject]@{name=$Name; publicUrl=($base + $Name)}, [pscustomobject]@{name=$ChecksumName; publicUrl=($base + $ChecksumName)})
+    }
     $asset = @($Release.assets | Where-Object { $_.name -ceq $Name })
     if ($asset.Count -ne 1) { throw "Required release asset missing: $Name" }
     $expected = ''
@@ -109,6 +141,20 @@ function Latest-App {
     if ($release.draft -or $release.prerelease -or $release.tag_name -notmatch '^v(\d+\.\d+\.\d+)$') { throw 'Latest release is not an official stable version.' }
     return @{ release=$release; version=[version]$Matches[1] }
 }
+function App-Status {
+    try {
+        $current = Read-AppVersion $InstallDir; $latest = Latest-App
+        if ($latest.version -gt $current) { return @{state='available'; message='Nova versao do Freenamp disponivel.'; version=$latest.version.ToString()} }
+        return @{state='up-to-date'; message='Freenamp atualizado.'; version=$current.ToString()}
+    } catch { return @{state='error'; message=('Verificacao falhou: ' + $_.Exception.Message.Split([Environment]::NewLine)[0]); version=''} }
+}
+function Extractor-Status {
+    try {
+        $check = Check-Extractor
+        if ($check.current) { return @{state='up-to-date'; message='YouTube ja esta atualizado.'; version=$check.version} }
+        return @{state='available'; message='Atualizacao do YouTube disponivel.'; version=$check.version}
+    } catch { return @{state='error'; message=('Verificacao falhou: ' + $_.Exception.Message.Split([Environment]::NewLine)[0]); version=''} }
+}
 function App-Files($Directory) {
     foreach ($file in Get-ChildItem -LiteralPath $Directory -File -Recurse) {
         $relative = $file.FullName.Substring($Directory.TrimEnd('\').Length + 1).Replace('\','/')
@@ -128,24 +174,33 @@ function Remove-StagedDirectory($Path) {
     }
     Remove-Item -LiteralPath $full -Recurse -Force
 }
-function Stage-Extractor {
-    Write-Status 'progress' 'Verificando versoes' '' 5 | Out-Null
+function Check-Extractor {
     $yt = Get-Release 'yt-dlp/yt-dlp-nightly-builds'
     $deno = Get-Release 'denoland/deno'
+    if ($yt.tag_name -notmatch '^\d{4}\.\d{2}\.\d{2}\.\d+$' -or $deno.tag_name -notmatch '^v?\d+\.\d+\.\d+$') { throw 'Invalid extractor release version.' }
     $installedYt = Join-Path $InstallDir 'bin/yt-dlp.exe'
     $installedDeno = Join-Path $InstallDir 'bin/deno.exe'
     if ($yt.tag_name -match '^\d{4}\.\d{2}\.\d{2}\.\d+$' -and
         $deno.tag_name -match '^v?(\d+\.\d+\.\d+)$' -and
         (Test-Path -LiteralPath $installedYt -PathType Leaf) -and
         (Test-Path -LiteralPath $installedDeno -PathType Leaf)) {
+        try {
         $currentYt = & $installedYt --ignore-config --version 2>$null
         $ytText = [string]($currentYt | Select-Object -First 1)
         $ytOk = $LASTEXITCODE -eq 0 -and $ytText -match '^\d{4}\.\d{2}\.\d{2}\.\d+$' -and [version]$ytText -ge [version]$yt.tag_name
         $currentDeno = & $installedDeno --version 2>$null
         $denoText = [string]($currentDeno | Select-Object -First 1)
         $denoOk = $LASTEXITCODE -eq 0 -and $denoText -match '^deno\s+(\d+\.\d+\.\d+)(\s|$)' -and [version]$Matches[1] -ge [version]$deno.tag_name.TrimStart('v')
-        if ($ytOk -and $denoOk) { return @{ current=$true; version=$yt.tag_name } }
+        if ($ytOk -and $denoOk) { return @{ current=$true; version=$yt.tag_name; yt=$yt; deno=$deno } }
+        } catch { }
     }
+    return @{ current=$false; version=$yt.tag_name; yt=$yt; deno=$deno }
+}
+function Stage-Extractor {
+    Write-Status 'progress' 'Verificando versoes' '' 5 | Out-Null
+    $check = Check-Extractor
+    if ($check.current) { return $check }
+    $yt = $check.yt; $deno = $check.deno
     $workName = 'extractor-' + [guid]::NewGuid().ToString('N')
     $work = Join-Path $stage $workName
     [IO.Directory]::CreateDirectory($work) | Out-Null
@@ -225,6 +280,15 @@ try {
             $current = Read-AppVersion $InstallDir; $latest = Latest-App
             if ($latest.version -gt $current) { Write-Status 'available' 'Nova versao do Freenamp disponivel.' $latest.version.ToString() }
             else { Write-Status 'up-to-date' 'Freenamp atualizado.' $current.ToString() }
+        }
+        'CheckExtractor' {
+            $result = Extractor-Status
+            Write-Status $result.state $result.message $result.version
+        }
+        'CheckUpdates' {
+            $app = App-Status
+            $extractor = Extractor-Status
+            Write-StatusObject @{state='checked'; app=$app; extractor=$extractor}
         }
         'StageApp' {
             Write-Status 'progress' 'Verificando versao' '' 5 | Out-Null

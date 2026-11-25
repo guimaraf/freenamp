@@ -1,5 +1,7 @@
 # Deterministic offline coverage for the shipped PowerShell 5.1 updater.
 $ErrorActionPreference = 'Stop'
+$originalToken = $env:GITHUB_TOKEN
+$env:GITHUB_TOKEN = 'offline-test-token'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $testRoot = Join-Path $root ('build/updater-tests-' + [guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($testRoot) | Out-Null
@@ -29,6 +31,7 @@ function Run-Updater($Action) {
 try {
     # Redirect OS-local staging into this disposable workspace fixture only.
     $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'freenamp-update.ps1') -Raw
+    $text = $text.Replace('function Get-PublicTag($Repository) {', 'function Get-PublicTag($Repository) { if ($Repository -eq ''guimaraf/freenamp'') { return ''v1.1.0'' }; throw ''Fixture unavailable''')
     $text = $text.Replace("[Environment]::GetFolderPath('LocalApplicationData')", ("'" + $testRoot.Replace("'","''") + "'"))
     $script:Updater = Join-Path $testRoot 'updater.ps1'
     [IO.File]::WriteAllText($script:Updater,$text)
@@ -114,8 +117,15 @@ try {
     $ytUrl = 'https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/assets/125'
     $denoUrl = 'https://api.github.com/repos/denoland/deno/releases/assets/126'
     $global:FreenampTestDownloads[$ytUrl] = $fixtureExe; $global:FreenampTestDownloads[$denoUrl] = $denoZip
-    $global:FreenampTestYtRelease = [pscustomobject]@{assets=@([pscustomobject]@{name='yt-dlp.exe';url=$ytUrl;digest=('sha256:'+(Get-FileHash -LiteralPath $fixtureExe).Hash)})}
-    $global:FreenampTestDenoRelease = [pscustomobject]@{assets=@([pscustomobject]@{name='deno-x86_64-pc-windows-msvc.zip';url=$denoUrl;digest=('sha256:'+(Get-FileHash -LiteralPath $denoZip).Hash)})}
+    $global:FreenampTestYtRelease = [pscustomobject]@{tag_name='2026.11.25.000000'; assets=@([pscustomobject]@{name='yt-dlp.exe';url=$ytUrl;digest=('sha256:'+(Get-FileHash -LiteralPath $fixtureExe).Hash)})}
+    $global:FreenampTestDenoRelease = [pscustomobject]@{tag_name='v2.9.8'; assets=@([pscustomobject]@{name='deno-x86_64-pc-windows-msvc.zip';url=$denoUrl;digest=('sha256:'+(Get-FileHash -LiteralPath $denoZip).Hash)})}
+    Assert ((Run-Updater 'CheckExtractor').state -eq 'available') 'CheckExtractor identifies missing or outdated binaries'
+    $combined = Run-Updater 'CheckUpdates'
+    Assert ($combined.state -eq 'checked' -and $combined.app.state -eq 'available' -and $combined.extractor.state -eq 'available') 'Combined check reports independent update states'
+    $global:FreenampTestDenoRelease.tag_name = 'invalid'
+    $combined = Run-Updater 'CheckUpdates'
+    Assert ($combined.app.state -eq 'available' -and $combined.extractor.state -eq 'error') 'Extractor failure preserves application result'
+    $global:FreenampTestDenoRelease.tag_name = 'v2.9.8'
     Assert ((Run-Updater 'StageExtractor').state -eq 'ready') 'StageExtractor verifies both official release assets'
     Assert ((Get-Content -LiteralPath (Join-Path $script:Install 'bin/yt-dlp.exe') -Raw).Trim() -eq 'newer extractor') 'StageExtractor leaves active extractor untouched'
     Assert ((Get-Content -LiteralPath (Join-Path $script:Install 'bin/deno.exe') -Raw).Trim() -eq 'local deno') 'StageExtractor leaves active Deno untouched'
@@ -127,15 +137,21 @@ try {
     $denoVersionExe = Join-Path $testRoot 'deno-version.exe'
     Add-Type -TypeDefinition 'public class FreenampDenoVersion { public static void Main() { System.Console.WriteLine("deno 2.9.8 (stable)"); } }' -OutputAssembly $denoVersionExe -OutputType ConsoleApplication
     Copy-Item -LiteralPath $denoVersionExe -Destination (Join-Path $script:Install 'bin/deno.exe') -Force
-    $global:FreenampTestYtRelease | Add-Member -NotePropertyName tag_name -NotePropertyValue '2026.11.25.000000'
-    $global:FreenampTestDenoRelease | Add-Member -NotePropertyName tag_name -NotePropertyValue 'v2.9.8'
     $global:FreenampTestDownloads.Clear()
     Assert ((Run-Updater 'StageExtractor').state -eq 'up-to-date') 'Current yt-dlp and Deno skip downloads'
     '{"version":"1.1.0"}' | Set-Content -LiteralPath (Join-Path $script:Install 'release-info.json')
     $global:FreenampTestRelease.tag_name = 'v1.1.0'
     Assert ((Run-Updater 'StageApp').state -eq 'up-to-date') 'Current application skips downloads'
+    $env:GITHUB_TOKEN = ''
+    $publicBase = 'https://github.com/guimaraf/freenamp/releases/download/v1.1.0/'
+    $global:FreenampTestDownloads[$publicBase + 'freenamp-windows-x64.zip'] = $archive
+    $global:FreenampTestDownloads[$publicBase + 'SHA256SUMS.txt'] = $checks
+    '{"version":"1.0.0"}' | Set-Content -LiteralPath (Join-Path $script:Install 'release-info.json')
+    Assert ((Run-Updater 'CheckApp').state -eq 'available') 'Public latest release works without API token'
+    Assert ((Run-Updater 'StageApp').state -eq 'ready') 'Public download validates published checksum without API token'
     Write-Host 'All offline updater tests passed.'
 } finally {
+    $env:GITHUB_TOKEN = $originalToken
     $resolved = [IO.Path]::GetFullPath($testRoot)
     if ($resolved.StartsWith(([IO.Path]::GetFullPath((Join-Path $root 'build')) + '\'),[StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $resolved -Recurse -Force }
 }

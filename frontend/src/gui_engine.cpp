@@ -193,10 +193,7 @@ void GuiEngine::process_events(backend::CoreController& core) {
 #ifdef _WIN32
             const auto main = m_main_view.get_bounds();
             if (main.contains(mx, my) && my <= main.y + 16 && mx >= main.x + main.w - 15) {
-                if (m_updater.open_menu(m_window, core.get_resolver())) {
-                    m_running = false;
-                    return;
-                }
+                m_updater.open_menu();
                 continue;
             }
 #endif
@@ -383,10 +380,7 @@ void GuiEngine::process_events(backend::CoreController& core) {
 
 #ifdef _WIN32
             if (key == SDLK_F12) {
-                if (m_updater.open_menu(m_window, core.get_resolver())) {
-                    m_running = false;
-                    return;
-                }
+                m_updater.open_menu();
                 continue;
             }
 #endif
@@ -497,7 +491,7 @@ void GuiEngine::run(backend::CoreController& core, const std::string& initial_ur
         if (!m_running) break;
         core.update();
 #ifdef _WIN32
-        m_updater.update(m_window);
+        if (m_updater.update(m_window, core.get_resolver())) break;
 #endif
         if (m_system_media_keys) {
             m_system_media_keys->update();
