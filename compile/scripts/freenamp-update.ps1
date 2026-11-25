@@ -84,8 +84,18 @@ function Verified-Asset($Release, $Name, $Destination, $ChecksumName = 'SHA256SU
         if ($checks.Count -ne 1) { throw "No SHA256 verification available for $Name." }
         $checksumFile = $Destination + '.sha256'
         Download-Asset $checks[0] $checksumFile
-        foreach ($line in [IO.File]::ReadAllLines($checksumFile)) {
+        $lines = [IO.File]::ReadAllLines($checksumFile)
+        foreach ($line in $lines) {
             if ($line -match '^([a-fA-F0-9]{64})\s+\*?(.+)$' -and $Matches[2].Trim() -ceq $Name) { $expected = $Matches[1]; break }
+        }
+        # Deno publishes the formatted Get-FileHash output on Windows.
+        if (-not $expected -and ($lines -match '^Algorithm\s*:\s*SHA256\s*$')) {
+            $record = @($lines -match '^Hash\s*:\s*[a-fA-F0-9]{64}\s*$')
+            $paths = @($lines -match '^Path\s*:\s*.+$')
+            if ($record.Count -eq 1 -and $paths.Count -eq 1 -and
+                [IO.Path]::GetFileName(($paths[0] -replace '^Path\s*:\s*', '').Trim()) -ceq $Name) {
+                $expected = ($record[0] -replace '^Hash\s*:\s*', '').Trim()
+            }
         }
         Remove-Item -LiteralPath $checksumFile -Force
     }

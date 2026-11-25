@@ -31,7 +31,7 @@ function Run-Updater($Action) {
 try {
     # Redirect OS-local staging into this disposable workspace fixture only.
     $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'freenamp-update.ps1') -Raw
-    $text = $text.Replace('function Get-PublicTag($Repository) {', 'function Get-PublicTag($Repository) { if ($Repository -eq ''guimaraf/freenamp'') { return ''v1.1.0'' }; throw ''Fixture unavailable''')
+    $text = $text.Replace('function Get-PublicTag($Repository) {', 'function Get-PublicTag($Repository) { if ($Repository -eq ''guimaraf/freenamp'') { return ''v1.1.0'' }; if ($Repository -eq ''yt-dlp/yt-dlp-nightly-builds'') { return ''2026.11.25.000000'' }; if ($Repository -eq ''denoland/deno'') { return ''v2.9.8'' }; throw ''Fixture unavailable''')
     $text = $text.Replace("[Environment]::GetFolderPath('LocalApplicationData')", ("'" + $testRoot.Replace("'","''") + "'"))
     $script:Updater = Join-Path $testRoot 'updater.ps1'
     [IO.File]::WriteAllText($script:Updater,$text)
@@ -149,6 +149,19 @@ try {
     '{"version":"1.0.0"}' | Set-Content -LiteralPath (Join-Path $script:Install 'release-info.json')
     Assert ((Run-Updater 'CheckApp').state -eq 'available') 'Public latest release works without API token'
     Assert ((Run-Updater 'StageApp').state -eq 'ready') 'Public download validates published checksum without API token'
+    $ytPublic = 'https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/2026.11.25.000000/'
+    $denoPublic = 'https://github.com/denoland/deno/releases/download/v2.9.8/'
+    $ytChecks = Join-Path $testRoot 'SHA2-256SUMS'
+    $denoChecks = Join-Path $testRoot 'deno.sha256sum'
+    ((Get-FileHash -LiteralPath $fixtureExe).Hash + '  yt-dlp.exe') | Set-Content -LiteralPath $ytChecks
+    @('Algorithm : SHA256', ('Hash      : ' + (Get-FileHash -LiteralPath $denoZip).Hash),
+      'Path      : C:\a\deno\deno\target\release\deno-x86_64-pc-windows-msvc.zip') | Set-Content -LiteralPath $denoChecks
+    $global:FreenampTestDownloads[$ytPublic + 'yt-dlp.exe'] = $fixtureExe
+    $global:FreenampTestDownloads[$ytPublic + 'SHA2-256SUMS'] = $ytChecks
+    $global:FreenampTestDownloads[$denoPublic + 'deno-x86_64-pc-windows-msvc.zip'] = $denoZip
+    $global:FreenampTestDownloads[$denoPublic + 'deno-x86_64-pc-windows-msvc.zip.sha256sum'] = $denoChecks
+    Remove-Item -LiteralPath (Join-Path $script:Install 'bin/yt-dlp.exe')
+    Assert ((Run-Updater 'StageExtractor').state -eq 'ready') 'Public yt-dlp and Deno archives verify their checksum files without API token'
     Write-Host 'All offline updater tests passed.'
 } finally {
     $env:GITHUB_TOKEN = $originalToken
