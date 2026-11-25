@@ -7,6 +7,7 @@
 #include <atomic>
 #include <mutex>
 #include <chrono>
+#include <cstdint>
 #include <random>
 #include <map>
 
@@ -73,6 +74,8 @@ private:
     double m_pan = 0.0;
     bool m_track_ended = false;
     bool m_playback_error = false;
+    std::int64_t m_first_entry_id = 0;
+    std::int64_t m_started_entry_id = 0;
 
     EqualizerDsp m_equalizer;
 

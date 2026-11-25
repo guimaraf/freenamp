@@ -138,6 +138,7 @@ private:
     void refresh_loading();
 
     void notify_event(const std::string& event_name);
+    void start_playlist_stream(const TrackMetadata& track);
     void play_current_playlist_track(bool force_re_resolve = false);
     void handle_playback_error();
     // Launches a background thread, registers it for clean join on shutdown

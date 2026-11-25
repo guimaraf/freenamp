@@ -269,6 +269,18 @@ void CoreController::add_url(const std::string& input, bool play_immediately) {
     }
 }
 
+void CoreController::start_playlist_stream(const TrackMetadata& track) {
+    m_status_message = "Tocando: " + track.title;
+    m_loading_progress = 100;
+    m_status_error = !m_audio.load_url(track.stream_url, true, track.http_headers);
+    if (m_status_error) {
+        m_status_message = "Erro ao iniciar reproducao de audio";
+        notify_event("playback_stopped");
+    } else {
+        notify_event("track_changed");
+    }
+}
+
 void CoreController::play_current_playlist_track(bool force_re_resolve) {
     if (m_shutdown.load()) return;
     m_status_error = false;
@@ -282,15 +294,7 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
     m_current_title = track.title;
     if (!force_re_resolve && track.is_resolved && !track.stream_url.empty() && !track.http_headers.empty() &&
         !YtResolver::is_stream_url_expired(track.stream_url)) {
-        m_status_message = "Tocando: " + track.title;
-        m_loading_progress = 100;
-        if (!m_audio.load_url(track.stream_url, true, track.http_headers)) {
-            m_status_error = true;
-            m_status_message = "Erro ao iniciar reproducao de audio";
-            notify_event("playback_stopped");
-        } else {
-            notify_event("track_changed");
-        }
+        start_playlist_stream(track);
         return;
     }
     m_audio.stop();
@@ -322,14 +326,9 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
             auto selected = m_playlist.get_current_track();
             if (!selected || PlaylistManager::track_identity(*selected) != identity) return;
             if (stream && stream->is_resolved && m_playlist.set_stream_for_identity(identity, *stream)) {
-                m_status_message = "Tocando: " + selected->title;
-                m_loading_progress = 100;
-                m_status_error = !m_audio.load_url(stream->stream_url, true, stream->http_headers);
-                if (m_status_error) {
-                    m_status_message = "Erro ao iniciar reproducao de audio";
-                    notify_event("playback_stopped");
-                } else {
-                    notify_event("track_changed");
+                const auto updated = m_playlist.get_current_track();
+                if (updated && PlaylistManager::track_identity(*updated) == identity) {
+                    start_playlist_stream(*updated);
                 }
             } else {
                 m_status_error = true;
@@ -359,6 +358,7 @@ void CoreController::play() {
     if (m_audio.get_state() == PlaybackState::Paused) {
         m_audio.play();
     } else if (m_playlist.get_current_index() >= 0) {
+        m_track_retry_count = 0;
         play_current_playlist_track();
     } else if (!m_playlist.empty()) {
         play_track_index(0);
@@ -498,10 +498,6 @@ void CoreController::handle_playback_error() {
         m_track_retry_count++;
         std::cerr << "[CoreController] URL expirada ou inválida ao tocar (" << current->title
                   << "). Invalidando cache e re-resolvendo link fresco...\n";
-        m_resolver.remove_from_cache(current->id);
-        if (!current->original_url.empty()) {
-            m_resolver.remove_from_cache(current->original_url);
-        }
         int cur_idx = m_playlist.get_current_index();
         if (cur_idx >= 0) {
             m_playlist.set_track_stream_url(static_cast<size_t>(cur_idx), "");
@@ -523,13 +519,12 @@ void CoreController::update() {
     if (m_shutdown.load()) return;
     consume_completions(true);
     m_playlist.apply_prefetch_result();
+    PlaybackState state = m_audio.get_state();
     if (m_audio.has_playback_error()) {
         m_audio.clear_playback_error();
-        handle_playback_error();
+        if (!m_resolving_track) handle_playback_error();
         return;
     }
-
-    PlaybackState state = m_audio.get_state();
 
     if (state == PlaybackState::Playing) {
         double pos = m_audio.get_position();

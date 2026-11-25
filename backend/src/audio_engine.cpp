@@ -150,16 +150,25 @@ bool AudioEngine::load_url(const std::string& stream_url, bool autoplay,
         return false;
     }
 
-    m_track_ended = false;
-    m_playback_error = false;
-
     mpv_set_property_string(m_mpv, "force-media-title", "Freenamp");
     mpv_set_property_string(m_mpv, "title", "Freenamp");
 
     const char* cmd[] = { "loadfile", stream_url.c_str(), "replace", nullptr };
-    int err = mpv_command(m_mpv, cmd);
+    m_track_ended = false;
+    m_playback_error = false;
+    m_first_entry_id = 0;
+    m_started_entry_id = 0;
+    const int err = mpv_command(m_mpv, cmd);
     if (err < 0) {
         std::cerr << "[AudioEngine] Erro ao carregar URL no mpv: " << mpv_error_string(err) << "\n";
+        m_current_state = PlaybackState::Stopped;
+        return false;
+    }
+
+    // replace installs the new entry before returning; older events can still be queued.
+    if (mpv_get_property(m_mpv, "playlist/0/id", MPV_FORMAT_INT64, &m_first_entry_id) < 0) {
+        const char* stop_cmd[] = { "stop", nullptr };
+        mpv_command(m_mpv, stop_cmd);
         m_current_state = PlaybackState::Stopped;
         return false;
     }
@@ -217,6 +226,8 @@ void AudioEngine::stop() {
     m_current_state = PlaybackState::Stopped;
     m_track_ended = false;
     m_playback_error = false;
+    m_first_entry_id = 0;
+    m_started_entry_id = 0;
 }
 
 void AudioEngine::seek(double seconds_absolute) {
@@ -275,9 +286,16 @@ PlaybackState AudioEngine::get_state() {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
 
-        if (event->event_id == MPV_EVENT_END_FILE) {
-            auto* end_data = static_cast<mpv_event_end_file*>(event->data);
-            if (end_data) {
+        if (event->event_id == MPV_EVENT_START_FILE) {
+            const auto* start = static_cast<const mpv_event_start_file*>(event->data);
+            // mpv can insert additional entries after a playlist redirect.
+            if (start && m_first_entry_id > 0 && start->playlist_entry_id >= m_first_entry_id) {
+                m_started_entry_id = start->playlist_entry_id;
+            }
+        } else if (event->event_id == MPV_EVENT_END_FILE) {
+            const auto* end_data = static_cast<const mpv_event_end_file*>(event->data);
+            if (end_data && m_started_entry_id > 0 && end_data->playlist_entry_id == m_started_entry_id) {
+                m_started_entry_id = 0;
                 if (end_data->reason == MPV_END_FILE_REASON_EOF) {
                     if (m_current_state == PlaybackState::Playing) {
                         m_track_ended = true;
@@ -290,7 +308,7 @@ PlaybackState AudioEngine::get_state() {
                     m_current_state = PlaybackState::Stopped;
                 }
             }
-        } else if (event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
+        } else if (event->event_id == MPV_EVENT_PLAYBACK_RESTART && m_started_entry_id > 0) {
             m_current_state = PlaybackState::Playing;
 #ifdef _WIN32
             enforce_windows_mixer_display_name(L"Freenamp");

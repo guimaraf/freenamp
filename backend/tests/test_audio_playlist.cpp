@@ -233,6 +233,27 @@ void test_audio_engine_lifecycle() {
     std::cout << "  -> AudioEngine inicializado e configurado com sucesso!\n\n";
 }
 
+void test_stopped_stream_cannot_report_a_late_error() {
+    using namespace std::chrono_literals;
+    AudioEngine audio;
+    const auto missing = (std::filesystem::current_path() / "missing-stream-fixture" / "audio.wav").string();
+
+    assert(audio.load_url(missing));
+    // Let mpv fail without consuming its queued events.
+    std::this_thread::sleep_for(300ms);
+    audio.stop();
+    assert(audio.get_state() == PlaybackState::Stopped);
+    assert(!audio.has_playback_error());
+
+    assert(audio.load_url(missing));
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (!audio.has_playback_error() && std::chrono::steady_clock::now() < deadline) {
+        audio.get_state();
+        std::this_thread::sleep_for(10ms);
+    }
+    assert(audio.has_playback_error());
+}
+
 void test_live_headless_playback() {
     std::cout << "[TEST] 4. Testando reproducao headless em tempo real com stream do YouTube...\n";
 
@@ -320,6 +341,7 @@ int main(int argc, char* argv[]) {
     test_playlist_expired_url_persistence();
     test_settings_and_windows_layout_persistence();
     test_audio_engine_lifecycle();
+    test_stopped_stream_cannot_report_a_late_error();
     if (argc < 2 || std::string(argv[1]) != "--offline") test_live_headless_playback();
 
     std::cout << "===================================================\n";
