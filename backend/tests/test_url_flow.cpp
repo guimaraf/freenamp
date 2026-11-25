@@ -31,7 +31,8 @@ int imitate_extractor(int argc, char** argv) {
     } else {
         std::cout << "{\"id\":\"" << (first ? first_id : next_id)
                   << "\",\"title\":\"Playable\",\"duration\":120,\"url\":\""
-                  << (first ? first_stream : next_stream) << "\"}\n";
+                  << (first ? first_stream : next_stream)
+                  << "\",\"http_headers\":{\"User-Agent\":\"Freenamp fixture\"}}\n";
     }
     return 0;
 }
@@ -66,6 +67,7 @@ int main(int argc, char** argv) {
     auto& playlist = core.get_playlist();
     assert(playlist.size() == 2 && playlist.get_track(0)->id == first_id);
     assert(playlist.get_track(1)->id == next_id);
+    assert(playlist.get_track(0)->http_headers.at("User-Agent") == "Freenamp fixture");
     assert(core.get_state() == PlaybackState::Stopped);
 
     const auto added = playlist.add_track(*playlist.get_track(0));
@@ -74,12 +76,14 @@ int main(int argc, char** argv) {
     settle(core);
     assert(playlist.size() == 2 && core.get_status_text().find("indisponivel") != std::string::npos);
 
-    playlist.set_track_stream_url(0, "");
+    // A legacy entry has a saved URL but no matching request headers.
+    playlist.set_track_stream_url(0, "https://audio.invalid/legacy");
     core.play_track_index(0);
     playlist.move_track(1, 0);
     settle(core);
     assert(playlist.get_track(0)->id == next_id && playlist.get_track(0)->stream_url == next_stream);
     assert(playlist.get_track(1)->stream_url == first_stream);
+    assert(playlist.get_track(1)->http_headers.at("User-Agent") == "Freenamp fixture");
     core.stop();
 
     playlist.set_track_stream_url(1, "");

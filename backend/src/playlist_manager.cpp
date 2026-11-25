@@ -46,12 +46,13 @@ int PlaylistManager::find_track(const std::string& identity) const {
     return -1;
 }
 
-bool PlaylistManager::set_stream_url_for_identity(const std::string& identity, const std::string& stream_url) {
+bool PlaylistManager::set_stream_for_identity(const std::string& identity, const TrackMetadata& resolved) {
     std::lock_guard<std::mutex> lock(m_mutex);
     for (auto& track : m_tracks) {
         if (track_identity(track) == identity) {
-            track.stream_url = stream_url;
-            track.is_resolved = !stream_url.empty();
+            track.stream_url = resolved.stream_url;
+            track.is_resolved = resolved.is_resolved;
+            track.http_headers = resolved.http_headers;
             return true;
         }
     }
@@ -197,6 +198,7 @@ void PlaylistManager::set_track_stream_url(size_t index, const std::string& stre
     if (index < m_tracks.size()) {
         m_tracks[index].stream_url = stream_url;
         m_tracks[index].is_resolved = !stream_url.empty();
+        m_tracks[index].http_headers.clear();
     }
 }
 
@@ -484,8 +486,8 @@ void PlaylistManager::shutdown_prefetch() {
 void PlaylistManager::apply_prefetch_result() {
     if (!m_prefetch_done.load()) return;
     if (m_prefetch_thread.joinable()) m_prefetch_thread.join();
-    if (!m_prefetch_shutdown && m_prefetch_result && !m_prefetch_result->empty()) {
-        set_stream_url_for_identity(m_prefetch_identity, *m_prefetch_result);
+    if (!m_prefetch_shutdown && m_prefetch_result && m_prefetch_result->is_resolved) {
+        set_stream_for_identity(m_prefetch_identity, *m_prefetch_result);
     } else {
         // A failing extractor must not launch a new request every UI frame.
         m_prefetch_retry_after = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -503,13 +505,13 @@ void PlaylistManager::check_prefetch(YtResolver& resolver, double current_pos, d
     const int index = peek_next_index();
     if (index < 0) return;
     auto track = get_track(static_cast<size_t>(index));
-    if (!track || (track->is_resolved && !track->stream_url.empty() &&
+    if (!track || (track->is_resolved && !track->stream_url.empty() && !track->http_headers.empty() &&
         !YtResolver::is_stream_url_expired(track->stream_url))) return;
     m_prefetch_identity = track_identity(*track);
     const auto target = !track->original_url.empty() ? track->original_url : track->id;
     try {
         m_prefetch_thread = std::thread([this, &resolver, target]() {
-            try { m_prefetch_result = resolver.resolve_stream_url(target); }
+            try { m_prefetch_result = resolver.resolve_track_info(target); }
             catch (...) { m_prefetch_result.reset(); }
             m_prefetch_done.store(true);
         });

@@ -280,11 +280,11 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
     const auto track = *current;
     const auto identity = PlaylistManager::track_identity(track);
     m_current_title = track.title;
-    if (!force_re_resolve && track.is_resolved && !track.stream_url.empty() &&
+    if (!force_re_resolve && track.is_resolved && !track.stream_url.empty() && !track.http_headers.empty() &&
         !YtResolver::is_stream_url_expired(track.stream_url)) {
         m_status_message = "Tocando: " + track.title;
         m_loading_progress = 100;
-        if (!m_audio.load_url(track.stream_url, true)) {
+        if (!m_audio.load_url(track.stream_url, true, track.http_headers)) {
             m_status_error = true;
             m_status_message = "Erro ao iniciar reproducao de audio";
             notify_event("playback_stopped");
@@ -297,11 +297,13 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
     m_resolving_track = true;
     refresh_loading();
     m_loading_progress = 25;
-    m_status_message = force_re_resolve ? "Renovando link de áudio..." : "Carregando stream de audio...";
+    m_status_message = (force_re_resolve || !track.stream_url.empty())
+        ? "Renovando link de áudio..." : "Carregando stream de audio...";
     notify_event("track_loading");
-    const auto target = !track.original_url.empty() ? track.original_url : track.id;
+    const bool has_video_id = track.id.size() == 11 && YtResolver::detect_url_type(track.id) == UrlType::SingleVideo;
+    const auto target = (has_video_id || track.original_url.empty()) ? track.id : track.original_url;
     if (!launch_bg_thread([this, target, identity, request, track, force_re_resolve]() {
-        std::optional<std::string> stream;
+        std::optional<TrackMetadata> stream;
         std::string error;
         try {
             if (!m_shutdown.load()) {
@@ -309,7 +311,7 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
                     m_resolver.remove_from_cache(track.id);
                     m_resolver.remove_from_cache(track.original_url);
                 }
-                stream = m_resolver.resolve_stream_url(target);
+                stream = m_resolver.resolve_track_info(target, true, force_re_resolve);
                 error = m_resolver.get_last_error();
             }
         } catch (...) { error = "Falha ao resolver áudio"; }
@@ -319,10 +321,10 @@ void CoreController::play_current_playlist_track(bool force_re_resolve) {
             refresh_loading();
             auto selected = m_playlist.get_current_track();
             if (!selected || PlaylistManager::track_identity(*selected) != identity) return;
-            if (stream && !stream->empty() && m_playlist.set_stream_url_for_identity(identity, *stream)) {
+            if (stream && stream->is_resolved && m_playlist.set_stream_for_identity(identity, *stream)) {
                 m_status_message = "Tocando: " + selected->title;
                 m_loading_progress = 100;
-                m_status_error = !m_audio.load_url(*stream, true);
+                m_status_error = !m_audio.load_url(stream->stream_url, true, stream->http_headers);
                 if (m_status_error) {
                     m_status_message = "Erro ao iniciar reproducao de audio";
                     notify_event("playback_stopped");

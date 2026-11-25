@@ -31,7 +31,7 @@ public:
     ImportResult add_playlist(const PlaylistMetadata& playlist);
     static std::string track_identity(const TrackMetadata& track);
     int find_track(const std::string& identity) const;
-    bool set_stream_url_for_identity(const std::string& identity, const std::string& stream_url);
+    bool set_stream_for_identity(const std::string& identity, const TrackMetadata& resolved);
     bool remove_track(size_t index);
     bool remove_tracks(const std::vector<size_t>& indices);
     void clear();
@@ -87,7 +87,7 @@ private:
     std::atomic<bool> m_prefetch_done{false};
     bool m_prefetch_shutdown = false;
     std::string m_prefetch_identity;
-    std::optional<std::string> m_prefetch_result;
+    std::optional<TrackMetadata> m_prefetch_result;
     std::chrono::steady_clock::time_point m_prefetch_retry_after{};
 
     void rebuild_shuffle_indices();

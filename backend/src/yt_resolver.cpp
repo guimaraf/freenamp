@@ -497,7 +497,7 @@ void YtResolver::run_while_idle(const std::function<void()>& task) const {
     task();
 }
 
-std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& url_or_id, bool fetch_stream_url) {
+std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& url_or_id, bool fetch_stream_url, bool refresh) {
     last_resolver_error = nullptr;
     std::string clean_url = sanitize_url(url_or_id);
     if (detect_url_type(clean_url) == UrlType::Unknown) {
@@ -505,14 +505,15 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
         return std::nullopt;
     }
 
-    {
+    if (!refresh) {
         std::lock_guard<std::mutex> lock(m_cache_mutex);
         auto it = m_metadata_cache.find(clean_url);
         if (it != m_metadata_cache.end()) {
             if (!fetch_stream_url) {
                 return it->second;
             }
-            if (it->second.is_resolved && !is_stream_url_expired(it->second.stream_url)) {
+            if (it->second.is_resolved && !it->second.http_headers.empty() &&
+                !is_stream_url_expired(it->second.stream_url)) {
                 return it->second;
             }
         }
@@ -559,7 +560,14 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
 
         if (fetch_stream_url && j.contains("url") && j["url"].is_string()) {
             track.stream_url = j["url"].get<std::string>();
-            track.is_resolved = !track.stream_url.empty();
+            track.is_resolved = (track.stream_url.starts_with("https://") || track.stream_url.starts_with("http://")) &&
+                                !is_stream_url_expired(track.stream_url);
+            if (!track.is_resolved) track.stream_url.clear();
+            if (const auto headers = j.find("http_headers"); headers != j.end() && headers->is_object()) {
+                for (const auto& [name, value] : headers->items()) {
+                    if (value.is_string()) track.http_headers.emplace(name, value.get<std::string>());
+                }
+            }
         }
 
         std::lock_guard<std::mutex> lock(m_cache_mutex);

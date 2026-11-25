@@ -6,6 +6,7 @@
 #include <future>
 #include <unordered_map>
 #include <mutex>
+#include <map>
 #include <atomic>
 #include <functional>
 
@@ -19,6 +20,7 @@ struct TrackMetadata {
     std::string stream_url;      // Direct Opus/AAC CDN URL
     bool is_resolved = false;     // True if stream_url is resolved and valid
     std::string original_url;   // Original video URL or YouTube ID
+    std::map<std::string, std::string> http_headers;
 };
 
 struct PlaylistMetadata {
@@ -52,7 +54,8 @@ public:
     static bool is_stream_url_expired(const std::string& stream_url);
 
     // Synchronous resolution methods
-    std::optional<TrackMetadata> resolve_track_info(const std::string& url_or_id, bool fetch_stream_url = true);
+    std::optional<TrackMetadata> resolve_track_info(const std::string& url_or_id, bool fetch_stream_url = true,
+                                                    bool refresh = false);
     std::optional<std::string> resolve_stream_url(const std::string& video_id_or_url);
     std::optional<PlaylistMetadata> resolve_playlist(const std::string& playlist_url);
 

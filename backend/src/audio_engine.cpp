@@ -107,9 +107,48 @@ void AudioEngine::init_mpv() {
     mpv_set_property(m_mpv, "volume", MPV_FORMAT_DOUBLE, &m_volume);
 }
 
-bool AudioEngine::load_url(const std::string& stream_url, bool autoplay) {
+bool AudioEngine::load_url(const std::string& stream_url, bool autoplay,
+                           const std::map<std::string, std::string>& headers) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_mpv || stream_url.empty()) return false;
+
+    // Use a structured string list so commas and backslashes in header values
+    // are not interpreted as mpv list separators or escapes.
+    std::vector<std::string> header_lines;
+    header_lines.reserve(headers.size());
+    for (const auto& [name, value] : headers) {
+        const auto valid_name_char = [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                   (c >= '0' && c <= '9') ||
+                   std::string("!#$%&'*+-.^_`|~").find(static_cast<char>(c)) != std::string::npos;
+        };
+        if (name.empty() || !std::all_of(name.begin(), name.end(), valid_name_char) ||
+            std::any_of(value.begin(), value.end(), [](unsigned char c) {
+                return (c < 0x20 && c != '\t') || c == 0x7f;
+            })) {
+            std::cerr << "[AudioEngine] Cabeçalho HTTP inválido.\n";
+            return false;
+        }
+        header_lines.push_back(name + ": " + value);
+    }
+    std::vector<mpv_node> header_nodes(header_lines.size());
+    for (size_t i = 0; i < header_lines.size(); ++i) {
+        header_nodes[i].format = MPV_FORMAT_STRING;
+        header_nodes[i].u.string = header_lines[i].data();
+    }
+    mpv_node_list header_list{};
+    header_list.num = static_cast<int>(header_nodes.size());
+    header_list.values = header_nodes.data();
+    mpv_node header_option{};
+    header_option.format = MPV_FORMAT_NODE_ARRAY;
+    header_option.u.list = &header_list;
+    const int header_err = mpv_set_property(m_mpv, "options/http-header-fields",
+                                            MPV_FORMAT_NODE, &header_option);
+    if (header_err < 0) {
+        std::cerr << "[AudioEngine] Erro ao configurar cabeçalhos HTTP: "
+                  << mpv_error_string(header_err) << "\n";
+        return false;
+    }
 
     m_track_ended = false;
     m_playback_error = false;

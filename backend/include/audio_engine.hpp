@@ -8,6 +8,7 @@
 #include <mutex>
 #include <chrono>
 #include <random>
+#include <map>
 
 struct mpv_handle;
 
@@ -32,7 +33,8 @@ public:
     AudioEngine& operator=(const AudioEngine&) = delete;
 
     // Core Controls
-    bool load_url(const std::string& stream_url, bool autoplay = true);
+    bool load_url(const std::string& stream_url, bool autoplay = true,
+                  const std::map<std::string, std::string>& headers = {});
     void play();
     void pause();
     void toggle_pause();
