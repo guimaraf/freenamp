@@ -1,4 +1,5 @@
 #include "playlist_manager.hpp"
+#include "session_file.hpp"
 #include <algorithm>
 #include <numeric>
 #include <iostream>
@@ -11,38 +12,50 @@ PlaylistManager::PlaylistManager()
     : m_rng(std::random_device{}()) {
 }
 
-void PlaylistManager::add_track(const TrackMetadata& track) {
+std::string PlaylistManager::track_identity(const TrackMetadata& track) {
+    return !track.id.empty() ? "id:" + track.id : "url:" + track.original_url;
+}
+
+size_t PlaylistManager::add_track(const TrackMetadata& track) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    // Deduplicate: skip if a track with the same id or original_url already exists
-    const std::string& dedup_key = track.id.empty() ? track.original_url : track.id;
-    if (!dedup_key.empty()) {
-        for (const auto& t : m_tracks) {
-            const std::string& existing_key = t.id.empty() ? t.original_url : t.id;
-            if (existing_key == dedup_key) {
-                return; // Already in playlist
-            }
-        }
+    for (size_t i = 0; i < m_tracks.size(); ++i) {
+        if ((!track.id.empty() && track.id == m_tracks[i].id) ||
+            (!track.original_url.empty() && track.original_url == m_tracks[i].original_url)) return i;
     }
     m_tracks.push_back(track);
     rebuild_shuffle_indices();
+    return m_tracks.size() - 1;
 }
 
-void PlaylistManager::add_playlist(const PlaylistMetadata& playlist) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+PlaylistManager::ImportResult PlaylistManager::add_playlist(const PlaylistMetadata& playlist) {
+    ImportResult result;
     for (const auto& track : playlist.tracks) {
-        // Deduplicate per-track within playlists as well
-        const std::string& dedup_key = track.id.empty() ? track.original_url : track.id;
-        if (!dedup_key.empty()) {
-            bool found = false;
-            for (const auto& t : m_tracks) {
-                const std::string& existing_key = t.id.empty() ? t.original_url : t.id;
-                if (existing_key == dedup_key) { found = true; break; }
-            }
-            if (found) continue;
-        }
-        m_tracks.push_back(track);
+        const auto before = size();
+        const auto index = add_track(track);
+        if (!result.first_index) result.first_index = index;
+        if (size() > before) ++result.added;
     }
-    rebuild_shuffle_indices();
+    return result;
+}
+
+int PlaylistManager::find_track(const std::string& identity) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (size_t i = 0; i < m_tracks.size(); ++i) {
+        if (track_identity(m_tracks[i]) == identity) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+bool PlaylistManager::set_stream_url_for_identity(const std::string& identity, const std::string& stream_url) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& track : m_tracks) {
+        if (track_identity(track) == identity) {
+            track.stream_url = stream_url;
+            track.is_resolved = !stream_url.empty();
+            return true;
+        }
+    }
+    return false;
 }
 
 bool PlaylistManager::remove_track(size_t index) {
@@ -92,7 +105,7 @@ bool PlaylistManager::remove_tracks(const std::vector<size_t>& indices) {
         }
         m_current_index = std::max(0, next_idx);
     } else {
-        m_current_index = std::max(0, orig_current - before_current_count);
+        m_current_index = orig_current < 0 ? -1 : std::max(0, orig_current - before_current_count);
     }
 
     rebuild_shuffle_indices();
@@ -104,8 +117,7 @@ void PlaylistManager::clear() {
     m_tracks.clear();
     m_current_index = -1;
     m_shuffle_indices.clear();
-    m_prefetch_in_progress = false;
-    m_prefetched_index = -1;
+
 }
 
 void PlaylistManager::move_track(size_t from_idx, size_t to_idx) {
@@ -134,9 +146,9 @@ std::pair<size_t, size_t> PlaylistManager::move_tracks(const std::vector<size_t>
     if (extracted.empty()) return { 0, 0 };
 
     // Remember currently playing track ID if any
-    std::string current_track_id = "";
+    std::string current_track_id;
     if (m_current_index >= 0 && m_current_index < static_cast<int>(m_tracks.size())) {
-        current_track_id = m_tracks[m_current_index].id;
+        current_track_id = track_identity(m_tracks[m_current_index]);
     }
 
     // Count how many removed tracks were strictly before to_idx
@@ -166,7 +178,7 @@ std::pair<size_t, size_t> PlaylistManager::move_tracks(const std::vector<size_t>
     // Restore m_current_index
     if (!current_track_id.empty()) {
         for (size_t i = 0; i < m_tracks.size(); ++i) {
-            if (m_tracks[i].id == current_track_id) {
+            if (track_identity(m_tracks[i]) == current_track_id) {
                 m_current_index = static_cast<int>(i);
                 break;
             }
@@ -209,10 +221,7 @@ bool PlaylistManager::save_to_file(const std::string& filepath) const {
             j.push_back(item);
         }
 
-        std::ofstream ofs(filepath);
-        if (!ofs.is_open()) return false;
-        ofs << j.dump(2);
-        return true;
+        return write_session_file(filepath, j.dump(2));
     } catch (...) {
         return false;
     }
@@ -228,7 +237,7 @@ bool PlaylistManager::load_from_file(const std::string& filepath) {
         ifs >> j;
         if (!j.is_array()) return false;
 
-        m_tracks.clear();
+        std::vector<TrackMetadata> loaded_tracks;
         for (const auto& item : j) {
             TrackMetadata tr;
             tr.id = item.value("id", "");
@@ -244,8 +253,9 @@ bool PlaylistManager::load_from_file(const std::string& filepath) {
                 tr.stream_url = "";
                 tr.is_resolved = false;
             }
-            m_tracks.push_back(tr);
+            loaded_tracks.push_back(tr);
         }
+        m_tracks = std::move(loaded_tracks);
 
         if (!m_tracks.empty()) {
             m_current_index = 0;
@@ -309,6 +319,8 @@ bool PlaylistManager::set_current_index(int index) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (index >= 0 && index < static_cast<int>(m_tracks.size())) {
         m_current_index = index;
+        auto it = std::find(m_shuffle_indices.begin(), m_shuffle_indices.end(), static_cast<size_t>(index));
+        if (it != m_shuffle_indices.end()) m_shuffle_pos = static_cast<size_t>(it - m_shuffle_indices.begin());
         return true;
     }
     return false;
@@ -318,12 +330,15 @@ std::optional<TrackMetadata> PlaylistManager::play_track_at(size_t index) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (index < m_tracks.size()) {
         m_current_index = static_cast<int>(index);
+        auto it = std::find(m_shuffle_indices.begin(), m_shuffle_indices.end(), index);
+        if (it != m_shuffle_indices.end()) m_shuffle_pos = static_cast<size_t>(it - m_shuffle_indices.begin());
         return m_tracks[m_current_index];
     }
     return std::nullopt;
 }
 
 int PlaylistManager::peek_next_index() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (m_tracks.empty()) return -1;
 
     if (m_repeat == RepeatMode::One && m_current_index >= 0) {
@@ -361,7 +376,7 @@ std::optional<TrackMetadata> PlaylistManager::next() {
         m_shuffle_pos++;
         if (m_shuffle_pos >= m_shuffle_indices.size()) {
             if (m_repeat == RepeatMode::All) {
-                rebuild_shuffle_indices();
+                // Preserve the order advertised by peek_next_index() for prefetch.
                 m_shuffle_pos = 0;
             } else {
                 return std::nullopt;
@@ -432,7 +447,7 @@ void PlaylistManager::toggle_shuffle() {
 
 void PlaylistManager::set_repeat(RepeatMode mode) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_repeat = mode;
+    if (mode == RepeatMode::Off || mode == RepeatMode::All || mode == RepeatMode::One) m_repeat = mode;
 }
 
 void PlaylistManager::cycle_repeat() {
@@ -449,58 +464,59 @@ void PlaylistManager::rebuild_shuffle_indices() {
     std::iota(m_shuffle_indices.begin(), m_shuffle_indices.end(), 0);
     std::shuffle(m_shuffle_indices.begin(), m_shuffle_indices.end(), m_rng);
     m_shuffle_pos = 0;
+    if (m_current_index >= 0) {
+        auto it = std::find(m_shuffle_indices.begin(), m_shuffle_indices.end(), static_cast<size_t>(m_current_index));
+        if (it != m_shuffle_indices.end()) std::iter_swap(m_shuffle_indices.begin(), it);
+    }
+}
+
+PlaylistManager::~PlaylistManager() {
+    shutdown_prefetch();
+}
+
+void PlaylistManager::shutdown_prefetch() {
+    m_prefetch_shutdown = true;
+    if (m_prefetch_thread.joinable()) m_prefetch_thread.join();
+    m_prefetch_result.reset();
+    m_prefetch_identity.clear();
+}
+
+void PlaylistManager::apply_prefetch_result() {
+    if (!m_prefetch_done.load()) return;
+    if (m_prefetch_thread.joinable()) m_prefetch_thread.join();
+    if (!m_prefetch_shutdown && m_prefetch_result && !m_prefetch_result->empty()) {
+        set_stream_url_for_identity(m_prefetch_identity, *m_prefetch_result);
+    } else {
+        // A failing extractor must not launch a new request every UI frame.
+        m_prefetch_retry_after = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    }
+    m_prefetch_result.reset();
+    m_prefetch_identity.clear();
+    m_prefetch_done.store(false);
 }
 
 void PlaylistManager::check_prefetch(YtResolver& resolver, double current_pos, double total_dur) {
-    // If remaining time is less than 15 seconds, prefetch next track's audio stream URL
-    if (total_dur <= 0.0 || (total_dur - current_pos) > 15.0) {
-        return;
+    apply_prefetch_result();
+    if (m_prefetch_shutdown || m_prefetch_thread.joinable() ||
+        std::chrono::steady_clock::now() < m_prefetch_retry_after || total_dur <= 0.0 ||
+        total_dur - current_pos > 15.0) return;
+    const int index = peek_next_index();
+    if (index < 0) return;
+    auto track = get_track(static_cast<size_t>(index));
+    if (!track || (track->is_resolved && !track->stream_url.empty() &&
+        !YtResolver::is_stream_url_expired(track->stream_url))) return;
+    m_prefetch_identity = track_identity(*track);
+    const auto target = !track->original_url.empty() ? track->original_url : track->id;
+    try {
+        m_prefetch_thread = std::thread([this, &resolver, target]() {
+            try { m_prefetch_result = resolver.resolve_stream_url(target); }
+            catch (...) { m_prefetch_result.reset(); }
+            m_prefetch_done.store(true);
+        });
+    } catch (...) {
+        m_prefetch_identity.clear();
+        m_prefetch_retry_after = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     }
-
-    if (m_prefetch_in_progress) return;
-
-    int next_idx = peek_next_index();
-    if (next_idx < 0 || next_idx >= static_cast<int>(m_tracks.size())) {
-        return;
-    }
-
-    if (m_prefetched_index == next_idx) {
-        return; // Already prefetched or in cache
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_tracks[next_idx].is_resolved && !m_tracks[next_idx].stream_url.empty() && !YtResolver::is_stream_url_expired(m_tracks[next_idx].stream_url)) {
-            m_prefetched_index = next_idx;
-            return;
-        }
-    }
-
-    m_prefetch_in_progress = true;
-    m_prefetched_index = next_idx;
-
-    // Launch background thread to resolve next track's direct stream URL
-    std::thread([this, &resolver, next_idx]() {
-        std::string target_id;
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            if (next_idx < static_cast<int>(m_tracks.size())) {
-                target_id = m_tracks[next_idx].id;
-            }
-        }
-
-        if (!target_id.empty()) {
-            auto stream_url = resolver.resolve_stream_url(target_id);
-            if (stream_url.has_value() && !stream_url->empty()) {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                if (next_idx < static_cast<int>(m_tracks.size()) && m_tracks[next_idx].id == target_id) {
-                    m_tracks[next_idx].stream_url = stream_url.value();
-                    m_tracks[next_idx].is_resolved = true;
-                }
-            }
-        }
-        m_prefetch_in_progress = false;
-    }).detach();
 }
 
 } // namespace freenamp::backend

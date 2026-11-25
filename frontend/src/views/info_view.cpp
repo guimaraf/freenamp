@@ -21,6 +21,18 @@ void InfoView::render(SDL_Renderer* renderer, backend::CoreController& core) {
     Rect lcd_box = { bx + 11, by + 20, 253, 42 };
     RetroWidgets::draw_recessed_box(renderer, lcd_box);
 
+    if (core.has_status_error() && !core.is_loading()) {
+        const auto status = core.get_status_text();
+        const auto break_at = status.size() > 30 ? status.rfind(' ', 30) : std::string::npos;
+        if (break_at != std::string::npos) {
+            RetroFont::draw_text(renderer, status.substr(0, break_at), bx + 16, by + 25, Palette::TextActive, 1);
+            RetroFont::draw_text(renderer, status.substr(break_at + 1), bx + 16, by + 40, Palette::TextActive, 1);
+        } else {
+            RetroFont::draw_text(renderer, status, bx + 16, by + 25, Palette::TextActive, 1);
+        }
+        return;
+    }
+
     if (core.is_loading()) {
         // Line 1: Technical loading status (clean, no track title)
         std::string status = core.get_status_text();

@@ -10,6 +10,9 @@
 #include "system_media_keys.hpp"
 #include <SDL.h>
 #include <memory>
+#ifdef _WIN32
+#include "portable_update_win.hpp"
+#endif
 
 namespace freenamp::frontend {
 
@@ -19,7 +22,7 @@ public:
     ~GuiEngine();
 
     bool init();
-    void run(backend::CoreController& core);
+    void run(backend::CoreController& core, const std::string& initial_url = {});
     void shutdown();
 
     void save_window_layout();
@@ -38,6 +41,9 @@ private:
     EqView m_eq_view{ 20, 214 };
     PlaylistView m_playlist_view{ 305, 20, 355, 310 };
     InputModal m_input_modal;
+#ifdef _WIN32
+    PortableUpdate m_updater;
+#endif
 
     std::unique_ptr<ISystemMediaKeys> m_system_media_keys;
 

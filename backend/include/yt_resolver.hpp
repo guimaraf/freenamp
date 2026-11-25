@@ -6,6 +6,8 @@
 #include <future>
 #include <unordered_map>
 #include <mutex>
+#include <atomic>
+#include <functional>
 
 namespace freenamp::backend {
 
@@ -78,18 +80,20 @@ public:
     static bool is_version_newer(const std::string& candidate, const std::string& baseline);
     bool check_for_update() const;
     bool update_ytdlp_binary();
+    std::string get_last_error() const;
+    void cancel_pending() noexcept { m_cancelled.store(true); }
+    void run_while_idle(const std::function<void()>& task) const;
 
 private:
     std::string m_ytdlp_path;
 
     mutable std::mutex m_cache_mutex;
     mutable std::mutex m_process_mutex; // Garantia estrita de processo único yt-dlp
+    std::atomic<bool> m_cancelled{false};
     std::unordered_map<std::string, std::string> m_stream_url_cache; // id -> stream_url
     std::unordered_map<std::string, TrackMetadata> m_metadata_cache;  // id -> TrackMetadata
 
-    // Subprocess execution helper (Win32 CREATE_NO_WINDOW / POSIX popen)
-    std::string execute_command(const std::string& cmd_line) const;
-    std::string build_command_line(const std::vector<std::string>& args) const;
+    std::string run_extractor(const std::vector<std::string>& args) const;
 };
 
 } // namespace freenamp::backend

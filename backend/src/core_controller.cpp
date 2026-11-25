@@ -1,6 +1,8 @@
 #include "core_controller.hpp"
+#include "session_file.hpp"
 #include <iostream>
 #include <thread>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -12,38 +14,76 @@ CoreController::CoreController(std::string ytdlp_path)
 }
 
 CoreController::~CoreController() {
-    // Signal all background threads to exit cleanly
-    m_shutdown.store(true);
-    // Cancel any in-flight resolve
-    m_current_resolve_id++;
+    shutdown();
+}
 
-    // Join all tracked threads
-    std::vector<std::thread> threads;
-    {
-        std::lock_guard<std::mutex> lock(m_threads_mutex);
-        threads = std::move(m_bg_threads);
+void CoreController::shutdown() {
+    if (m_shutdown.exchange(true)) return;
+    ++m_current_resolve_id;
+    m_resolver.cancel_pending();
+    m_playlist.shutdown_prefetch();
+    for (auto& worker : m_bg_threads) {
+        if (worker.thread.joinable()) worker.thread.join();
     }
-    for (auto& t : threads) {
-        if (t.joinable()) t.join();
+    m_bg_threads.clear();
+    // Preserve completed imports, but never start playback or call GUI listeners here.
+    consume_completions(false);
+    m_resolving_track = false;
+    m_is_loading = false;
+}
+
+bool CoreController::launch_bg_thread(std::function<void()> fn) {
+    if (m_shutdown.load()) return false;
+    m_bg_threads.erase(std::remove_if(m_bg_threads.begin(), m_bg_threads.end(),
+        [](BackgroundWorker& worker) {
+            if (!worker.done->load()) return false;
+            if (worker.thread.joinable()) worker.thread.join();
+            return true;
+        }), m_bg_threads.end());
+    try {
+        // Reserve before starting: a failing allocation must not destroy a joinable thread.
+        m_bg_threads.reserve(m_bg_threads.size() + 1);
+        auto done = std::make_shared<std::atomic<bool>>(false);
+        m_bg_threads.push_back({std::thread([fn = std::move(fn), done]() {
+            try { fn(); } catch (...) { /* Each operation reports its own failure. */ }
+            done->store(true);
+        }), done});
+        return true;
+    } catch (...) {
+        return false;
     }
 }
 
-void CoreController::launch_bg_thread(std::function<void()> fn) {
-    std::lock_guard<std::mutex> lock(m_threads_mutex);
-    // Reap finished threads before adding a new one
-    m_bg_threads.erase(
-        std::remove_if(m_bg_threads.begin(), m_bg_threads.end(),
-            [](std::thread& t) {
-                // A thread is "done" if it's not joinable (shouldn't happen here)
-                // We can't easily poll without detach; use a wrapper with done flag
-                return !t.joinable();
-            }),
-        m_bg_threads.end());
-    m_bg_threads.emplace_back(std::move(fn));
+void CoreController::post_completion(std::function<void(bool)> completion) {
+    std::lock_guard<std::mutex> lock(m_completion_mutex);
+    m_completions.push_back(std::move(completion));
+}
+
+void CoreController::consume_completions(bool allow_playback) {
+    std::deque<std::function<void(bool)>> completions;
+    {
+        std::lock_guard<std::mutex> lock(m_completion_mutex);
+        completions.swap(m_completions);
+    }
+    for (auto& completion : completions) completion(allow_playback);
+    while (true) {
+        auto it = m_import_results.find(m_next_import_to_apply);
+        if (it == m_import_results.end()) break;
+        auto apply = std::move(it->second);
+        m_import_results.erase(it);
+        ++m_next_import_to_apply;
+        --m_pending_imports;
+        apply(allow_playback);
+    }
+    refresh_loading();
+}
+
+void CoreController::refresh_loading() {
+    m_is_loading = m_resolving_track || m_pending_imports != 0;
 }
 
 void CoreController::notify_event(const std::string& event_name) {
-    if (m_event_cb) {
+    if (!m_shutdown.load() && m_event_cb) {
         m_event_cb(event_name);
     }
 }
@@ -64,6 +104,7 @@ void CoreController::save_session() {
             }
         }
 
+        if (!settings.is_object()) settings = nlohmann::json::object();
         settings["volume"] = m_audio.get_volume();
         settings["pan"] = m_audio.get_pan();
         settings["shuffle"] = is_shuffle();
@@ -82,10 +123,7 @@ void CoreController::save_session() {
         }
         settings["eq"]["bands"] = eq_bands;
 
-        std::ofstream ofs("cache/settings.json");
-        if (ofs.is_open()) {
-            ofs << settings.dump(2);
-        }
+        write_session_file("cache/settings.json", settings.dump(2));
     } catch (...) {}
 }
 
@@ -155,137 +193,156 @@ void CoreController::load_session() {
     } catch (...) {}
 }
 
-void CoreController::add_url(const std::string& url_or_id, bool play_immediately) {
-    if (url_or_id.empty()) return;
-
-    UrlType type = YtResolver::detect_url_type(url_or_id);
-    m_is_loading = true;
+void CoreController::add_url(const std::string& input, bool play_immediately) {
+    if (m_shutdown.load()) return;
+    const auto url = YtResolver::sanitize_url(input);
+    const auto type = YtResolver::detect_url_type(url);
+    if (type == UrlType::Unknown) {
+        m_status_error = true;
+        m_status_message = "Informe um link ou ID válido do YouTube";
+        notify_event("loading_end");
+        return;
+    }
+    m_status_error = false;
+    const uint64_t import_id = m_next_import_id++;
+    const uint64_t intent = play_immediately ? ++m_current_resolve_id : m_current_resolve_id.load();
+    if (play_immediately) m_resolving_track = false;
+    ++m_pending_imports;
+    refresh_loading();
     m_loading_progress = 10;
     m_status_message = "Conectando ao YouTube...";
     notify_event("loading_start");
-
-    launch_bg_thread([this, url_or_id, type, play_immediately]() {
-        if (m_shutdown.load()) return;
-        if (type == UrlType::Playlist) {
-            m_status_message = "Carregando Playlist...";
-            m_loading_progress = 30;
-            auto pl = m_resolver.resolve_playlist(url_or_id);
-            if (m_shutdown.load()) return;
-            if (pl.has_value() && !pl->tracks.empty()) {
-                m_loading_progress = 85;
-                bool was_empty = m_playlist.empty();
-                size_t start_idx = m_playlist.size();
-                m_playlist.add_playlist(pl.value());
-                m_status_message = "Playlist adicionada: " + std::to_string(pl->tracks.size()) + " faixas";
-                notify_event("playlist_updated");
-
-                m_is_loading = false;
-                m_loading_progress = 100;
-                notify_event("loading_end");
-
-                if (play_immediately || was_empty) {
-                    play_track_index(start_idx);
-                }
-                save_session();
-                return;
-            } else {
-                m_status_message = "Falha ao carregar playlist";
+    if (!launch_bg_thread([this, url, type, play_immediately, import_id, intent]() {
+        std::optional<PlaylistMetadata> playlist;
+        std::optional<TrackMetadata> track;
+        std::string error;
+        try {
+            if (!m_shutdown.load()) {
+                if (type == UrlType::Playlist) playlist = m_resolver.resolve_playlist(url);
+                else track = m_resolver.resolve_track_info(url, true);
+                error = m_resolver.get_last_error();
             }
-        } else {
-            m_status_message = "Buscando metadados do video...";
-            m_loading_progress = 35;
-            auto track = m_resolver.resolve_track_info(url_or_id, true);
-            if (m_shutdown.load()) return;
-            if (track.has_value()) {
-                m_loading_progress = 90;
-                bool was_empty = m_playlist.empty();
-                m_playlist.add_track(track.value());
-                m_status_message = "Faixa adicionada: " + track->title;
-                notify_event("playlist_updated");
-
-                m_is_loading = false;
-                m_loading_progress = 100;
-                notify_event("loading_end");
-
-                if (play_immediately || was_empty) {
-                    play_track_index(m_playlist.size() - 1);
-                }
-                save_session();
-                return;
-            } else {
-                m_status_message = "Falha ao resolver video";
-            }
-        }
-        m_is_loading = false;
-        m_loading_progress = 0;
-        notify_event("loading_end");
-    });
+        } catch (...) { error = "Falha ao consultar o YouTube"; }
+        post_completion([this, playlist = std::move(playlist), track = std::move(track),
+                         error, play_immediately, import_id, intent](bool) mutable {
+            m_import_results.emplace(import_id,
+                [this, playlist = std::move(playlist), track = std::move(track), error,
+                 play_immediately, intent](bool allow_playback) {
+                    std::optional<size_t> first_index;
+                    size_t added = 0;
+                    if (playlist && !playlist->tracks.empty()) {
+                        auto result = m_playlist.add_playlist(*playlist);
+                        first_index = result.first_index;
+                        added = result.added;
+                    } else if (track) {
+                        const auto before = m_playlist.size();
+                        first_index = m_playlist.add_track(*track);
+                        added = m_playlist.size() - before;
+                    }
+                    if (first_index) {
+                        m_status_error = false;
+                        m_status_message = std::to_string(added) + " faixas adicionadas";
+                        notify_event("playlist_updated");
+                        m_loading_progress = 100;
+                        if (allow_playback && play_immediately && intent == m_current_resolve_id.load()) {
+                            play_track_index(*first_index);
+                        }
+                        if (allow_playback) save_session();
+                    } else {
+                        m_status_error = true;
+                        m_status_message = error.empty() ? "Falha ao carregar conteúdo do YouTube" : error;
+                        m_loading_progress = 0;
+                    }
+                    refresh_loading();
+                    notify_event("loading_end");
+                });
+        });
+    })) {
+        // Keep the import-order barrier moving even if the OS cannot create a worker.
+        m_import_results.emplace(import_id, [this](bool) {
+            m_status_error = true;
+            m_status_message = "Falha ao iniciar consulta do YouTube";
+            m_loading_progress = 0;
+            refresh_loading();
+            notify_event("loading_end");
+        });
+    }
 }
 
 void CoreController::play_current_playlist_track(bool force_re_resolve) {
+    if (m_shutdown.load()) return;
+    m_status_error = false;
+    const uint64_t request = ++m_current_resolve_id; // Also cancels old results on a cached switch.
+    m_resolving_track = false;
+    refresh_loading();
     auto current = m_playlist.get_current_track();
-    if (!current.has_value()) return;
-
-    auto track = current.value();
+    if (!current) return;
+    const auto track = *current;
+    const auto identity = PlaylistManager::track_identity(track);
     m_current_title = track.title;
-
-    bool url_valid = !force_re_resolve &&
-                     track.is_resolved &&
-                     !track.stream_url.empty() &&
-                     !YtResolver::is_stream_url_expired(track.stream_url);
-
-    if (url_valid) {
+    if (!force_re_resolve && track.is_resolved && !track.stream_url.empty() &&
+        !YtResolver::is_stream_url_expired(track.stream_url)) {
         m_status_message = "Tocando: " + track.title;
         m_loading_progress = 100;
-        m_audio.load_url(track.stream_url, true);
-        notify_event("track_changed");
-    } else {
-        uint64_t req_id = ++m_current_resolve_id;
-        m_is_loading = true;
-        m_loading_progress = 25;
-        m_status_message = force_re_resolve ? "Renovando link de áudio..." : "Carregando stream de audio...";
-        notify_event("track_loading");
-
-        m_resolver.remove_from_cache(track.id);
-        if (!track.original_url.empty()) {
-            m_resolver.remove_from_cache(track.original_url);
+        if (!m_audio.load_url(track.stream_url, true)) {
+            m_status_error = true;
+            m_status_message = "Erro ao iniciar reproducao de audio";
+            notify_event("playback_stopped");
+        } else {
+            notify_event("track_changed");
         }
-
-        std::string resolve_target = !track.original_url.empty() ? track.original_url : track.id;
-
-        launch_bg_thread([this, target = resolve_target, idx = m_playlist.get_current_index(), req_id]() {
-            if (m_shutdown.load()) return;
-            m_loading_progress = 50;
-            auto stream_url = m_resolver.resolve_stream_url(target);
-
-            if (m_shutdown.load() || m_current_resolve_id != req_id) {
-                return; // Shutdown or requisicao substituida/cancelada
-            }
-
-            if (stream_url.has_value() && !stream_url->empty()) {
-                m_loading_progress = 85;
-                if (idx >= 0) {
-                    m_playlist.set_track_stream_url(static_cast<size_t>(idx), stream_url.value());
+        return;
+    }
+    m_audio.stop();
+    m_resolving_track = true;
+    refresh_loading();
+    m_loading_progress = 25;
+    m_status_message = force_re_resolve ? "Renovando link de áudio..." : "Carregando stream de audio...";
+    notify_event("track_loading");
+    const auto target = !track.original_url.empty() ? track.original_url : track.id;
+    if (!launch_bg_thread([this, target, identity, request, track, force_re_resolve]() {
+        std::optional<std::string> stream;
+        std::string error;
+        try {
+            if (!m_shutdown.load()) {
+                if (force_re_resolve) {
+                    m_resolver.remove_from_cache(track.id);
+                    m_resolver.remove_from_cache(track.original_url);
                 }
-                // Verify we are still on the same index and same request
-                if (m_playlist.get_current_index() == idx && m_current_resolve_id == req_id) {
-                    auto tr = m_playlist.get_track(idx);
-                    m_status_message = tr ? ("Tocando: " + tr->title) : "Reproduzindo";
-                    m_loading_progress = 100;
-                    m_audio.load_url(stream_url.value(), true);
+                stream = m_resolver.resolve_stream_url(target);
+                error = m_resolver.get_last_error();
+            }
+        } catch (...) { error = "Falha ao resolver áudio"; }
+        post_completion([this, stream = std::move(stream), error, identity, request](bool allow_playback) {
+            if (!allow_playback || request != m_current_resolve_id.load()) return;
+            m_resolving_track = false;
+            refresh_loading();
+            auto selected = m_playlist.get_current_track();
+            if (!selected || PlaylistManager::track_identity(*selected) != identity) return;
+            if (stream && !stream->empty() && m_playlist.set_stream_url_for_identity(identity, *stream)) {
+                m_status_message = "Tocando: " + selected->title;
+                m_loading_progress = 100;
+                m_status_error = !m_audio.load_url(*stream, true);
+                if (m_status_error) {
+                    m_status_message = "Erro ao iniciar reproducao de audio";
+                    notify_event("playback_stopped");
+                } else {
                     notify_event("track_changed");
                 }
             } else {
-                if (m_current_resolve_id == req_id) {
-                    m_status_message = "Erro ao reproduzir stream";
-                    m_loading_progress = 0;
-                }
+                m_status_error = true;
+                m_status_message = error.empty() ? "Erro ao reproduzir stream" : error;
+                m_loading_progress = 0;
             }
-            if (m_current_resolve_id == req_id) {
-                m_is_loading = false;
-                notify_event("loading_end");
-            }
+            notify_event("loading_end");
         });
+    })) {
+        m_resolving_track = false;
+        refresh_loading();
+        m_status_error = true;
+        m_status_message = "Falha ao iniciar consulta de audio";
+        m_loading_progress = 0;
+        notify_event("loading_end");
     }
 }
 
@@ -319,8 +376,11 @@ void CoreController::toggle_pause() {
 }
 
 void CoreController::stop() {
+    m_status_error = false;
     m_audio.stop();
-    m_is_loading = false;
+    m_resolving_track = false;
+    refresh_loading();
+    m_loading_progress = 0;
     m_current_resolve_id++;
     m_track_retry_count = 0;
     m_status_message = "Parado";
@@ -448,14 +508,19 @@ void CoreController::handle_playback_error() {
     } else {
         std::cerr << "[CoreController] Falha permanente ao carregar faixa (" << current->title << ").\n";
         m_track_retry_count = 0;
+        m_status_error = true;
         m_status_message = "Erro ao reproduzir faixa";
-        m_is_loading = false;
+        m_resolving_track = false;
+        refresh_loading();
         m_loading_progress = 0;
         notify_event("playback_stopped");
     }
 }
 
 void CoreController::update() {
+    if (m_shutdown.load()) return;
+    consume_completions(true);
+    m_playlist.apply_prefetch_result();
     if (m_audio.has_playback_error()) {
         m_audio.clear_playback_error();
         handle_playback_error();
@@ -465,7 +530,6 @@ void CoreController::update() {
     PlaybackState state = m_audio.get_state();
 
     if (state == PlaybackState::Playing) {
-        m_track_retry_count = 0;
         double pos = m_audio.get_position();
         double dur = m_audio.get_duration();
 
@@ -473,8 +537,8 @@ void CoreController::update() {
         m_playlist.check_prefetch(m_resolver, pos, dur);
     }
 
-    // Auto-advance when track finishes (only if not currently resolving/loading)
-    if (!m_is_loading && m_audio.is_track_finished()) {
+    // Background imports must not stall advancement of the current queue.
+    if (!m_resolving_track && m_audio.is_track_finished()) {
         next();
     }
 }
@@ -488,9 +552,9 @@ void CoreController::check_ytdlp_update_once() {
         try {
             if (m_shutdown.load()) return;
             bool has_update = m_resolver.check_for_update();
-            if (!m_shutdown.load() && has_update) {
-                m_ytdlp_update_available.store(true);
-            }
+            post_completion([this, has_update](bool allow) {
+                if (allow) m_ytdlp_update_available.store(has_update);
+            });
         } catch (...) {}
     });
 }
@@ -498,19 +562,31 @@ void CoreController::check_ytdlp_update_once() {
 void CoreController::trigger_ytdlp_update() {
     if (!m_ytdlp_update_available.load()) return;
     m_ytdlp_update_available.store(false);
+    m_status_error = false;
     m_status_message = "Atualizando yt-dlp...";
 
-    launch_bg_thread([this]() {
+    if (!launch_bg_thread([this]() {
         try {
             if (m_shutdown.load()) return;
             bool ok = m_resolver.update_ytdlp_binary();
-            if (!m_shutdown.load()) {
-                m_status_message = ok ? "yt-dlp atualizado!" : "Pronto";
-            }
+            post_completion([this, ok](bool allow) {
+                if (allow) {
+                    m_status_error = !ok;
+                    m_status_message = ok ? "yt-dlp atualizado!" : "Falha ao atualizar yt-dlp";
+                }
+            });
         } catch (...) {
-            if (!m_shutdown.load()) m_status_message = "Pronto";
+            post_completion([this](bool allow) {
+                if (allow) {
+                    m_status_error = true;
+                    m_status_message = "Falha ao atualizar yt-dlp";
+                }
+            });
         }
-    });
+    })) {
+        m_status_error = true;
+        m_status_message = "Falha ao iniciar atualizacao do yt-dlp";
+    }
 }
 
 } // namespace freenamp::backend

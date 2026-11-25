@@ -20,6 +20,7 @@ set(FRONTEND_COMMON_SRCS
 if(WIN32)
     add_library(freenamp_core SHARED
         src/main.cpp
+        src/portable_update_win.cpp
         ${FRONTEND_COMMON_SRCS}
     )
 
@@ -82,6 +83,9 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:freenamp_core>"
         "$<TARGET_FILE_DIR:freenamp>/core/$<TARGET_FILE_NAME:freenamp_core>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${COMPILE_DIR}/scripts/freenamp-update.ps1"
+        "$<TARGET_FILE_DIR:freenamp>/freenamp-update.ps1"
     )
 
 elseif(UNIX AND NOT APPLE)

@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-linux:
@@ -49,12 +49,7 @@ jobs:
 
       - name: Run Backend Tests
         run: |
-          echo "=== Executando test_yt_resolver ==="
-          ./build/backend/test_yt_resolver
-          echo "=== Executando test_audio_playlist ==="
-          ./build/backend/test_audio_playlist
-          echo "=== Executando test_url_flow ==="
-          ./build/backend/test_url_flow
+          ctest --test-dir build -C Release --output-on-failure --no-tests=error
 
       - name: Build Portable Package
         run: |
@@ -107,6 +102,10 @@ jobs:
         run: |
           .\compile\scripts\fetch_deps.ps1
 
+      - name: Test portable updater offline (Windows PowerShell 5.1)
+        shell: powershell
+        run: .\compile\scripts\test_updater.ps1
+
       - name: Configure CMake
         shell: msys2 {0}
         run: |
@@ -120,18 +119,13 @@ jobs:
       - name: Run Backend Tests
         shell: msys2 {0}
         run: |
-          echo "=== Executando test_yt_resolver ==="
-          ./build/backend/test_yt_resolver.exe
-          echo "=== Executando test_audio_playlist ==="
-          ./build/backend/test_audio_playlist.exe
-          echo "=== Executando test_url_flow ==="
-          ./build/backend/test_url_flow.exe
+          ctest --test-dir build -C Release --output-on-failure --no-tests=error
 
       - name: Build Portable Package
         shell: pwsh
         run: |
           $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
-          .\compile\scripts\build_portable_release.ps1
+          .\compile\scripts\build_portable_release.ps1 -SkipBuild
 
       - name: Create Zip Archive
         shell: pwsh
@@ -148,7 +142,7 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: [build-linux, build-windows]
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -181,32 +175,25 @@ jobs:
       - name: Generate Checksums
         run: |
           cd dist
+          test -s freenamp-windows-x64.zip
+          test -s freenamp-linux-x86_64.tar.gz
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          TAG_NAME="${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest' }}"
-          RELEASE_TITLE="${{ startsWith(github.ref, 'refs/tags/v') && format('Freenamp {0}', github.ref_name) || 'Freenamp (Continuous Release)' }}"
-
-          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
-            if ! gh release view "$TAG_NAME" >/dev/null 2>&1; then
-              echo "Criando release oficial para a tag $TAG_NAME..."
-              gh release create "$TAG_NAME" --title "$RELEASE_TITLE" --generate-notes
-            fi
+          TAG_NAME="$RELEASE_TAG"
+          [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Official releases require a stable semver tag'; exit 1; }
+          CMAKE_VERSION=$(sed -nE 's/^project\(Freenamp VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          test "$TAG_NAME" = "v$CMAKE_VERSION"
+          # Keep the draft hidden until every required asset and checksum is uploaded.
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            test "$(gh release view "$TAG_NAME" --json isDraft -q .isDraft)" = true || { echo 'Refusing to mutate a published release'; exit 1; }
           else
-            if ! gh release view latest >/dev/null 2>&1; then
-              echo "Criando release contínua 'latest'..."
-              gh release create latest --title "$RELEASE_TITLE" --prerelease --generate-notes
-            fi
+            gh release create "$TAG_NAME" --verify-tag --draft --title "Freenamp $TAG_NAME" --generate-notes
           fi
-
-          echo "Fazendo upload dos assets para $TAG_NAME..."
-          for file in dist/*; do
-            [ -f "$file" ] || continue
-            echo "Enviando $file..."
-            gh release upload "$TAG_NAME" "$file" --clobber
-          done
-          echo "Publicação de release concluída com sucesso!"
+          gh release upload "$TAG_NAME" dist/* --clobber
+          gh release edit "$TAG_NAME" --draft=false --latest

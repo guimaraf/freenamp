@@ -2,6 +2,7 @@
 #include "core_controller.hpp"
 #include "gui_engine.hpp"
 #include <iostream>
+#include <filesystem>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -10,23 +11,26 @@
 
 int main_app(int argc, char* argv[]) {
 #ifdef _WIN32
-    freenamp::backend::CoreController core("compile/bin/yt-dlp.exe");
+    // The portable session belongs to the running executable, including when started by a shortcut.
+    std::wstring executable(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size()));
+    if (length == 0 || length >= executable.size()) return 1;
+    executable.resize(length);
+    std::error_code error;
+    std::filesystem::current_path(std::filesystem::path(executable).parent_path(), error);
+    if (error) return 1;
+    const auto extractor = (std::filesystem::current_path() / L"bin/yt-dlp.exe").u8string();
+    freenamp::backend::CoreController core(std::string(extractor.begin(), extractor.end()));
 #else
     freenamp::backend::CoreController core("bin/yt-dlp");
 #endif
-
-    // If an argument was passed on the command line (e.g. YouTube video or playlist URL)
-    if (argc > 1) {
-        std::string initial_url = argv[1];
-        core.add_url(initial_url, true);
-    }
 
     freenamp::frontend::GuiEngine gui(680, 480);
     if (!gui.init()) {
         return 1;
     }
 
-    gui.run(core);
+    gui.run(core, argc > 1 ? argv[1] : "");
     return 0;
 }
 

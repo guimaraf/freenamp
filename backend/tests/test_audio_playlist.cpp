@@ -310,7 +310,7 @@ void test_live_headless_playback() {
     assert(restarted);
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     std::cout << "===================================================\n";
     std::cout << " Freenamp Backend - Testes das Fases 3 e 4         \n";
     std::cout << "===================================================\n\n";
@@ -320,7 +320,7 @@ int main() {
     test_playlist_expired_url_persistence();
     test_settings_and_windows_layout_persistence();
     test_audio_engine_lifecycle();
-    test_live_headless_playback();
+    if (argc < 2 || std::string(argv[1]) != "--offline") test_live_headless_playback();
 
     std::cout << "===================================================\n";
     std::cout << " TODOS OS TESTES DAS FASES 3 E 4 PASSARAM!         \n";

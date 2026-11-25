@@ -1,4 +1,5 @@
 #include "gui_engine.hpp"
+#include "session_file.hpp"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -189,6 +190,16 @@ void GuiEngine::process_events(backend::CoreController& core) {
             bool toggle_pl = false;
             bool play_requested = false;
 
+#ifdef _WIN32
+            const auto main = m_main_view.get_bounds();
+            if (main.contains(mx, my) && my <= main.y + 16 && mx >= main.x + main.w - 15) {
+                if (m_updater.open_menu(m_window, core.get_resolver())) {
+                    m_running = false;
+                    return;
+                }
+                continue;
+            }
+#endif
             if (m_main_view.handle_mouse_down(mx, my, core, request_open_url, toggle_eq, toggle_pl, play_requested)) {
                 if (play_requested) trigger_play(core);
                 if (request_open_url) m_input_modal.open();
@@ -370,6 +381,15 @@ void GuiEngine::process_events(backend::CoreController& core) {
             auto key = event.key.keysym.sym;
             bool ctrl = (SDL_GetModState() & KMOD_CTRL);
 
+#ifdef _WIN32
+            if (key == SDLK_F12) {
+                if (m_updater.open_menu(m_window, core.get_resolver())) {
+                    m_running = false;
+                    return;
+                }
+                continue;
+            }
+#endif
             if (key == SDLK_SPACE) {
                 core.toggle_pause();
             } else if (key == SDLK_z) {
@@ -378,7 +398,7 @@ void GuiEngine::process_events(backend::CoreController& core) {
                 trigger_play(core);
             } else if (key == SDLK_c) {
                 core.pause();
-            } else if (key == SDLK_v) {
+            } else if (key == SDLK_v && !ctrl) {
                 core.stop();
             } else if (key == SDLK_b) {
                 core.next();
@@ -424,10 +444,14 @@ void GuiEngine::render(backend::CoreController& core) {
     SDL_RenderPresent(m_renderer);
 }
 
-void GuiEngine::run(backend::CoreController& core) {
+void GuiEngine::run(backend::CoreController& core, const std::string& initial_url) {
     core.load_session();
     load_window_layout();
+#ifdef _WIN32
+    m_updater.restore_result(m_window);
+#else
     core.check_ytdlp_update_once();
+#endif
 
     if (m_system_media_keys) {
         m_system_media_keys->init(m_window, core);
@@ -462,9 +486,15 @@ void GuiEngine::run(backend::CoreController& core) {
         sync_media_keys();
     });
 
+    if (!initial_url.empty()) core.add_url(initial_url, true);
+
     while (m_running) {
         process_events(core);
+        if (!m_running) break;
         core.update();
+#ifdef _WIN32
+        m_updater.update(m_window);
+#endif
         if (m_system_media_keys) {
             m_system_media_keys->update();
         }
@@ -472,6 +502,11 @@ void GuiEngine::run(backend::CoreController& core) {
         SDL_Delay(16); // Cap at ~60 FPS
     }
 
+    core.set_event_callback({});
+#ifdef _WIN32
+    m_updater.shutdown();
+#endif
+    core.shutdown();
     core.save_session();
     save_window_layout();
 }
@@ -524,10 +559,7 @@ void GuiEngine::save_window_layout() {
         // Persist LED clock mode
         settings["ui"]["time_remaining_mode"] = m_main_view.is_time_remaining_mode();
 
-        std::ofstream ofs("cache/settings.json");
-        if (ofs.is_open()) {
-            ofs << settings.dump(2);
-        }
+        backend::write_session_file("cache/settings.json", settings.dump(2));
     } catch (...) {}
 }
 
@@ -547,6 +579,13 @@ void GuiEngine::load_window_layout() {
             m_height = std::clamp(saved_h, 500, 720);
             if (m_window) {
                 SDL_SetWindowSize(m_window, m_width, m_height);
+            }
+        }
+
+        if (settings.contains("ui") && settings["ui"].is_object()) {
+            const auto& ui = settings["ui"];
+            if (ui.contains("time_remaining_mode") && ui["time_remaining_mode"].is_boolean()) {
+                m_main_view.set_time_remaining_mode(ui["time_remaining_mode"].get<bool>());
             }
         }
 
@@ -610,13 +649,6 @@ void GuiEngine::load_window_layout() {
             }
         }
 
-        // Restore LED clock mode
-        if (settings.contains("ui") && settings["ui"].is_object()) {
-            const auto& ui = settings["ui"];
-            if (ui.contains("time_remaining_mode") && ui["time_remaining_mode"].is_boolean()) {
-                m_main_view.set_time_remaining_mode(ui["time_remaining_mode"].get<bool>());
-            }
-        }
     } catch (...) {}
 }
 

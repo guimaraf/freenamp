@@ -15,6 +15,10 @@ void test_url_detection() {
 
     assert(YtResolver::detect_url_type("https://www.youtube.com/playlist?list=PLrAXtmErZgOdP_8GztsuKi9nv7kU4v58-") == UrlType::Playlist);
     assert(YtResolver::detect_url_type("https://www.youtube.com/watch?v=abc&list=PLrAXtmErZgOdP_8GztsuKi9nv7kU4v58-") == UrlType::Playlist);
+    assert(YtResolver::detect_url_type("https://music.youtube.com/watch?v=jNQXAC9IVRw") == UrlType::SingleVideo);
+    assert(YtResolver::detect_url_type("https://youtu.be/jNQXAC9IVRw?list=RDjNQXAC9IVRw") == UrlType::Playlist);
+    assert(YtResolver::detect_url_type("https://example.org/watch?v=jNQXAC9IVRw") == UrlType::Unknown);
+    assert(YtResolver::detect_url_type("https://www.youtube.com.example.org/watch?v=jNQXAC9IVRw") == UrlType::Unknown);
 
     std::cout << "  -> Deteccao de URL passou com sucesso!\n\n";
 }
@@ -47,7 +51,7 @@ void test_stream_url_expiration() {
     std::cout << "  -> Verificacao de expiracao de URL passou com sucesso!\n\n";
 }
 
-void test_version_checking(YtResolver& resolver) {
+void test_version_checking(YtResolver& resolver, bool offline) {
     std::cout << "[TEST] 2.2 Testando comparacao de versoes e hash compilado do yt-dlp...\n";
     assert(YtResolver::is_version_newer("2026.09.20", "2026.09.16"));
     assert(!YtResolver::is_version_newer("2026.09.16", "2026.09.16"));
@@ -56,7 +60,7 @@ void test_version_checking(YtResolver& resolver) {
 
     std::string compiled_ver = YtResolver::get_compiled_version();
     std::string compiled_hash = YtResolver::get_compiled_hash();
-    std::string local_ver = resolver.get_local_version();
+    std::string local_ver = offline ? std::string{} : resolver.get_local_version();
 
     std::cout << "  -> Versao compilada: " << compiled_ver << "\n";
     std::cout << "  -> Hash compilado:   " << compiled_hash << "\n";
@@ -64,7 +68,7 @@ void test_version_checking(YtResolver& resolver) {
 
     assert(!compiled_ver.empty());
     assert(!compiled_hash.empty());
-    assert(!local_ver.empty());
+    if (!offline) assert(!local_ver.empty());
     std::cout << "  -> Verificacao de versao/hash passou com sucesso!\n\n";
 }
 
@@ -111,7 +115,7 @@ void test_live_resolution(YtResolver& resolver) {
     std::cout << "  -> Retorno do cache: " << cache_ms << " us (instantaneo)!\n\n";
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     std::cout << "========================================\n";
     std::cout << " Freenamp Backend - Teste de Integracao \n";
     std::cout << "========================================\n\n";
@@ -127,7 +131,9 @@ int main() {
 #endif
     std::cout << "[INFO] Caminho do yt-dlp: " << resolver.get_ytdlp_path() << "\n\n";
 
-    test_version_checking(resolver);
+    const bool offline = argc > 1 && std::string(argv[1]) == "--offline";
+    test_version_checking(resolver, offline);
+    if (offline) return 0;
     test_live_resolution(resolver);
 
     std::cout << "[TEST] 5. Testando resolucao de playlist plana...\n";

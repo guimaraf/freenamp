@@ -1,4 +1,5 @@
 #include "yt_resolver.hpp"
+#include "session_file.hpp"
 #include <nlohmann/json.hpp>
 
 #include <iostream>
@@ -10,14 +11,25 @@
 #include <fstream>
 #include <chrono>
 #include <ctime>
+#include <cctype>
+#include <cerrno>
+#include <thread>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <wininet.h>
+#include "windows_command_line.hpp"
 #else
-#include <cstdio>
+#include <fcntl.h>
+#include <signal.h>
+#include <spawn.h>
+#include <sys/wait.h>
 #include <unistd.h>
+extern char** environ;
 #endif
 
 #ifndef YTDLP_COMPILED_VERSION
@@ -33,6 +45,13 @@ namespace freenamp::backend {
 using json = nlohmann::json;
 
 namespace {
+
+thread_local const char* last_resolver_error = nullptr;
+
+bool is_video_id(const std::string& value) {
+    return value.size() == 11 && value.find_first_not_of(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") == std::string::npos;
+}
 
 std::string trim(const std::string& str) {
     auto start = str.find_first_not_of(" \t\r\n");
@@ -55,6 +74,7 @@ std::wstring to_wide_string(const std::string& str) {
 
 YtResolver::YtResolver(std::string ytdlp_path)
     : m_ytdlp_path(std::move(ytdlp_path)) {
+    if (std::filesystem::path(std::u8string(m_ytdlp_path.begin(), m_ytdlp_path.end())).is_absolute()) return;
     // Check executable directory first on Windows
 #ifdef _WIN32
     wchar_t exePath[MAX_PATH];
@@ -70,7 +90,8 @@ YtResolver::YtResolver(std::string ytdlp_path)
         };
         for (const auto& p : win_paths) {
             if (std::filesystem::exists(p)) {
-                m_ytdlp_path = p.string();
+                const auto utf8 = p.u8string();
+                m_ytdlp_path.assign(utf8.begin(), utf8.end());
                 return;
             }
         }
@@ -171,7 +192,7 @@ std::string YtResolver::sanitize_url(const std::string& input) {
     clean = clean.substr(start, end - start + 1);
 
     // 3. Handle duplicate paste (e.g. "https://...https://...")
-    size_t second_http = clean.find("http", 4);
+    size_t second_http = std::min(clean.find("https://", 8), clean.find("http://", 8));
     if (second_http != std::string::npos) {
         clean = clean.substr(0, second_http);
         end = clean.find_last_not_of(" \t\r\n");
@@ -208,31 +229,36 @@ bool YtResolver::is_stream_url_expired(const std::string& stream_url) {
 }
 
 UrlType YtResolver::detect_url_type(const std::string& raw_input) {
-    std::string input = sanitize_url(raw_input);
-    if (input.empty()) return UrlType::Unknown;
+    const auto input = sanitize_url(raw_input);
+    if (is_video_id(input)) return UrlType::SingleVideo;
+    const size_t scheme_end = input.find("://");
+    if (scheme_end == std::string::npos ||
+        (input.substr(0, scheme_end) != "http" && input.substr(0, scheme_end) != "https")) return UrlType::Unknown;
 
-    // Any URL with a playlist parameter (list=, playlist?list=, Mix / Radio) is a Playlist
-    if (input.find("list=") != std::string::npos) {
+    const size_t host_start = scheme_end + 3;
+    const size_t path_start = input.find('/', host_start);
+    if (path_start == std::string::npos) return UrlType::Unknown;
+    auto host = input.substr(host_start, path_start - host_start);
+    std::transform(host.begin(), host.end(), host.begin(),
+        [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    const bool short_link = host == "youtu.be" || host == "www.youtu.be";
+    if (!short_link && host != "youtube.com" && host != "www.youtube.com" &&
+        host != "m.youtube.com" && host != "music.youtube.com") return UrlType::Unknown;
+
+    const size_t end = input.find('#', path_start);
+    const auto path_and_query = input.substr(path_start, end - path_start);
+    const size_t question = path_and_query.find('?');
+    const auto path = path_and_query.substr(0, question);
+    const auto query = question == std::string::npos ? std::string{} : "&" + path_and_query.substr(question + 1);
+    const size_t playlist = query.find("&list=");
+    if (playlist != std::string::npos && playlist + 6 < query.size() && query[playlist + 6] != '&') {
         return UrlType::Playlist;
     }
-
-    // Single video formats
-    if (input.find("watch?v=") != std::string::npos ||
-        input.find("youtu.be/") != std::string::npos ||
-        input.find("youtube.com/shorts/") != std::string::npos) {
-        return UrlType::SingleVideo;
+    if ((short_link && is_video_id(path.substr(1))) ||
+        (!short_link && path == "/watch" && query.find("&v=") != std::string::npos)) return UrlType::SingleVideo;
+    for (const std::string prefix : {"/shorts/", "/live/", "/embed/", "/v/"}) {
+        if (!short_link && path.starts_with(prefix) && is_video_id(path.substr(prefix.size()))) return UrlType::SingleVideo;
     }
-
-    // 11-character video ID
-    if (input.length() == 11 && input.find(' ') == std::string::npos && input.find('/') == std::string::npos) {
-        return UrlType::SingleVideo;
-    }
-
-    // Fallback: If it starts with http, treat as single video
-    if (input.find("http://") == 0 || input.find("https://") == 0) {
-        return UrlType::SingleVideo;
-    }
-
     return UrlType::Unknown;
 }
 
@@ -254,121 +280,230 @@ std::string YtResolver::format_duration(int total_seconds) {
     return oss.str();
 }
 
-std::string YtResolver::build_command_line(const std::vector<std::string>& args) const {
-    std::string cmd = "\"" + m_ytdlp_path + "\"";
-    for (const auto& arg : args) {
-        cmd += " \"" + arg + "\"";
-    }
-    return cmd;
-}
+namespace {
 
-std::string YtResolver::execute_command(const std::string& cmd_line) const {
-    std::lock_guard<std::mutex> proc_lock(m_process_mutex);
-    std::string output;
+struct ProcessOutput {
+    std::string text;
+    std::string errors;
+    bool started = false;
+    bool timed_out = false;
+    bool cancelled = false;
+    bool success = false;
+};
+
+constexpr size_t output_limit = 4 * 1024 * 1024;
 
 #ifdef _WIN32
-    SECURITY_ATTRIBUTES saAttr;
-    saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
-    saAttr.bInheritHandle = TRUE;
-    saAttr.lpSecurityDescriptor = NULL;
-
-    HANDLE hChildStd_OUT_Rd = NULL;
-    HANDLE hChildStd_OUT_Wr = NULL;
-
-    if (!CreatePipe(&hChildStd_OUT_Rd, &hChildStd_OUT_Wr, &saAttr, 0)) {
-        return "";
+class Handle {
+public:
+    HANDLE value = nullptr;
+    ~Handle() { reset(); }
+    void reset() {
+        if (value && value != INVALID_HANDLE_VALUE) CloseHandle(value);
+        value = nullptr;
     }
+};
 
-    if (!SetHandleInformation(hChildStd_OUT_Rd, HANDLE_FLAG_INHERIT, 0)) {
-        CloseHandle(hChildStd_OUT_Rd);
-        CloseHandle(hChildStd_OUT_Wr);
-        return "";
+bool create_capture(Handle& reader, Handle& writer, SECURITY_ATTRIBUTES& security) {
+    return CreatePipe(&reader.value, &writer.value, &security, 0) &&
+        SetHandleInformation(reader.value, HANDLE_FLAG_INHERIT, 0);
+}
+
+ProcessOutput run_process(const std::vector<std::string>& args, const std::atomic<bool>& cancelled) {
+    ProcessOutput result;
+    SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+    Handle out_read, out_write, err_read, err_write, input, process, thread;
+    if (!create_capture(out_read, out_write, security) ||
+        !create_capture(err_read, err_write, security)) return result;
+    input.value = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        &security, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (input.value == INVALID_HANDLE_VALUE) return result;
+
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = input.value;
+    startup.hStdOutput = out_write.value;
+    startup.hStdError = err_write.value;
+    PROCESS_INFORMATION info{};
+    auto executable = to_wide_string(args.front());
+    std::wstring command;
+    for (const auto& argument : args) {
+        if (!command.empty()) command += L' ';
+        command += quote_windows_argument(to_wide_string(argument));
     }
+    if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, TRUE,
+            CREATE_NO_WINDOW, nullptr, nullptr, &startup, &info)) return result;
+    result.started = true;
+    process.value = info.hProcess;
+    thread.value = info.hThread;
+    out_write.reset();
+    err_write.reset();
 
-    HANDLE hChildStd_ERR = CreateFileW(
-        L"NUL",
-        GENERIC_WRITE,
-        FILE_SHARE_WRITE,
-        &saAttr,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        NULL
-    );
-
-    PROCESS_INFORMATION piProcInfo;
-    STARTUPINFOW siStartInfo;
-    ZeroMemory(&piProcInfo, sizeof(PROCESS_INFORMATION));
-    ZeroMemory(&siStartInfo, sizeof(STARTUPINFOW));
-
-    siStartInfo.cb = sizeof(STARTUPINFOW);
-    siStartInfo.hStdError = (hChildStd_ERR != INVALID_HANDLE_VALUE) ? hChildStd_ERR : NULL;
-    siStartInfo.hStdOutput = hChildStd_OUT_Wr;
-    siStartInfo.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    siStartInfo.wShowWindow = SW_HIDE;
-
-    std::wstring wcmd = to_wide_string(cmd_line);
-    std::vector<wchar_t> cmdBuffer(wcmd.begin(), wcmd.end());
-    cmdBuffer.push_back(L'\0');
-
-    BOOL bSuccess = CreateProcessW(
-        NULL,
-        cmdBuffer.data(),
-        NULL,
-        NULL,
-        TRUE,
-        CREATE_NO_WINDOW,
-        NULL,
-        NULL,
-        &siStartInfo,
-        &piProcInfo
-    );
-
-    // Close the write handle in parent so ReadFile hits EOF when child exits
-    CloseHandle(hChildStd_OUT_Wr);
-    if (hChildStd_ERR != INVALID_HANDLE_VALUE && hChildStd_ERR != NULL) {
-        CloseHandle(hChildStd_ERR);
-    }
-
-    if (!bSuccess) {
-        CloseHandle(hChildStd_OUT_Rd);
-        return "";
-    }
-
-    DWORD dwRead;
-    CHAR chBuf[4096];
-    bSuccess = FALSE;
-
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(45);
+    auto drain = [](HANDLE handle, std::string& target) {
+        char buffer[4096];
+        for (int chunk = 0; chunk < 64; ++chunk) {
+            DWORD pending = 0, bytes = 0;
+            if (!PeekNamedPipe(handle, nullptr, 0, nullptr, &pending, nullptr) || !pending ||
+                !ReadFile(handle, buffer, std::min<DWORD>(pending, sizeof(buffer)), &bytes, nullptr) || !bytes) break;
+            target.append(buffer, std::min(static_cast<size_t>(bytes), output_limit - target.size()));
+        }
+    };
     for (;;) {
-        bSuccess = ReadFile(hChildStd_OUT_Rd, chBuf, sizeof(chBuf), &dwRead, NULL);
-        if (!bSuccess || dwRead == 0) break;
-        output.append(chBuf, dwRead);
+        drain(out_read.value, result.text);
+        drain(err_read.value, result.errors);
+        const DWORD state = WaitForSingleObject(process.value, 20);
+        if (state == WAIT_OBJECT_0) {
+            drain(out_read.value, result.text);
+            drain(err_read.value, result.errors);
+            DWORD code = 1;
+            result.success = GetExitCodeProcess(process.value, &code) && code == 0;
+            break;
+        }
+        result.cancelled = cancelled.load();
+        result.timed_out = std::chrono::steady_clock::now() >= deadline;
+        if (result.cancelled || result.timed_out || state == WAIT_FAILED) {
+            TerminateProcess(process.value, 1);
+            break;
+        }
     }
-
-    WaitForSingleObject(piProcInfo.hProcess, INFINITE);
-
-    CloseHandle(piProcInfo.hProcess);
-    CloseHandle(piProcInfo.hThread);
-    CloseHandle(hChildStd_OUT_Rd);
-
+    return result;
+}
 #else
-    // POSIX fallback
-    std::array<char, 4096> buffer;
-    std::string safe_cmd = cmd_line + " 2>/dev/null";
-    FILE* pipe = popen(safe_cmd.c_str(), "r");
-    if (!pipe) return "";
-
-    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        output += buffer.data();
+class CapturePipe {
+public:
+    int fd[2]{-1, -1};
+    bool open() {
+        return pipe(fd) == 0 && fcntl(fd[0], F_SETFD, FD_CLOEXEC) == 0 &&
+            fcntl(fd[1], F_SETFD, FD_CLOEXEC) == 0 && fcntl(fd[0], F_SETFL, O_NONBLOCK) == 0;
     }
-    pclose(pipe);
+    void close_writer() {
+        if (fd[1] >= 0) close(fd[1]);
+        fd[1] = -1;
+    }
+    ~CapturePipe() {
+        if (fd[0] >= 0) close(fd[0]);
+        close_writer();
+    }
+};
+
+ProcessOutput run_process(const std::vector<std::string>& args, const std::atomic<bool>& cancelled) {
+    ProcessOutput result;
+    CapturePipe out, err;
+    if (!out.open() || !err.open()) return result;
+
+    std::vector<char*> argv;
+    for (const auto& argument : args) argv.push_back(const_cast<char*>(argument.c_str()));
+    argv.push_back(nullptr);
+
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) return result;
+    pid_t pid = -1;
+    int spawn_error = posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    if (!spawn_error) spawn_error = posix_spawn_file_actions_adddup2(&actions, out.fd[1], STDOUT_FILENO);
+    if (!spawn_error) spawn_error = posix_spawn_file_actions_adddup2(&actions, err.fd[1], STDERR_FILENO);
+    if (!spawn_error) spawn_error = posix_spawnp(&pid, argv[0], &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    if (spawn_error) return result;
+    out.close_writer();
+    err.close_writer();
+    result.started = true;
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(45);
+    auto drain = [](int fd, std::string& target) {
+        char buffer[4096];
+        for (int chunk = 0; chunk < 64; ++chunk) {
+            auto bytes = read(fd, buffer, sizeof(buffer));
+            if (bytes <= 0) break;
+            target.append(buffer, std::min(static_cast<size_t>(bytes), output_limit - target.size()));
+        }
+    };
+    for (;;) {
+        drain(out.fd[0], result.text);
+        drain(err.fd[0], result.errors);
+        int code = 0;
+        const auto reaped = waitpid(pid, &code, WNOHANG);
+        if (reaped == pid) {
+            drain(out.fd[0], result.text);
+            drain(err.fd[0], result.errors);
+            result.success = WIFEXITED(code) && WEXITSTATUS(code) == 0;
+            break;
+        }
+        if (reaped < 0 && errno != EINTR) break;
+        result.cancelled = cancelled.load();
+        result.timed_out = std::chrono::steady_clock::now() >= deadline;
+        if (result.cancelled || result.timed_out) {
+            kill(pid, SIGKILL);
+            while (waitpid(pid, &code, 0) < 0 && errno == EINTR) {}
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return result;
+}
 #endif
 
-    return output;
+const char* describe_process(const ProcessOutput& result) {
+    if (result.cancelled) return "Resolucao cancelada";
+    if (result.timed_out) return "Tempo limite do yt-dlp";
+    if (!result.started) return "Nao foi possivel abrir o yt-dlp";
+    auto errors = result.errors;
+    std::transform(errors.begin(), errors.end(), errors.begin(),
+        [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    if (errors.find("failed to resolve") != std::string::npos ||
+        errors.find("getaddrinfo") != std::string::npos) return "Falha de DNS ao acessar o YouTube";
+    if (errors.find("no supported javascript runtime") != std::string::npos ||
+        errors.find("challenge solving failed") != std::string::npos) return "Verifique o runtime JS (Deno) do yt-dlp";
+    if (!result.success) {
+        if (errors.find("video unavailable") != std::string::npos) return "Video indisponivel no YouTube";
+        if (errors.find("sign in") != std::string::npos) return "O YouTube exige login para este video";
+        if (errors.find("requested format") != std::string::npos) return "Formato de audio indisponivel";
+        return "yt-dlp falhou. Verifique a versao e tente novamente";
+    }
+    return nullptr;
+}
+
+} // namespace
+
+std::string YtResolver::run_extractor(const std::vector<std::string>& args) const {
+    std::lock_guard<std::mutex> lock(m_process_mutex);
+    if (m_cancelled.load()) {
+        last_resolver_error = "Resolucao cancelada";
+        return {};
+    }
+    std::vector<std::string> command{m_ytdlp_path, "--ignore-config"};
+#ifdef _WIN32
+    const auto deno = std::filesystem::path(to_wide_string(m_ytdlp_path)).parent_path() / L"deno.exe";
+    std::error_code error;
+    if (std::filesystem::is_regular_file(deno, error)) {
+        const auto path = deno.u8string();
+        command.emplace_back("--js-runtimes");
+        command.emplace_back("deno:" + std::string(path.begin(), path.end()));
+    }
+#endif
+    command.insert(command.end(), args.begin(), args.end());
+    const auto result = run_process(command, m_cancelled);
+    last_resolver_error = describe_process(result);
+    return result.success ? result.text : std::string{};
+}
+
+std::string YtResolver::get_last_error() const {
+    return last_resolver_error ? last_resolver_error : "";
+}
+
+void YtResolver::run_while_idle(const std::function<void()>& task) const {
+    std::lock_guard<std::mutex> lock(m_process_mutex);
+    task();
 }
 
 std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& url_or_id, bool fetch_stream_url) {
+    last_resolver_error = nullptr;
     std::string clean_url = sanitize_url(url_or_id);
-    if (clean_url.empty()) return std::nullopt;
+    if (detect_url_type(clean_url) == UrlType::Unknown) {
+        last_resolver_error = "Informe uma URL ou ID do YouTube";
+        return std::nullopt;
+    }
 
     {
         std::lock_guard<std::mutex> lock(m_cache_mutex);
@@ -387,7 +522,7 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
         "--dump-json",
         "--no-playlist",
         "--skip-download",
-        "--no-warnings"
+        "--socket-timeout", "10", "--retries", "1"
     };
 
     if (fetch_stream_url) {
@@ -395,10 +530,10 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
         args.push_back("ba/b");
     }
 
-    args.push_back(clean_url);
+    args.emplace_back("--");
+    args.push_back(is_video_id(clean_url) ? "https://www.youtube.com/watch?v=" + clean_url : clean_url);
 
-    std::string cmd = build_command_line(args);
-    std::string raw_json = execute_command(cmd);
+    std::string raw_json = run_extractor(args);
 
     if (raw_json.empty()) {
         return std::nullopt;
@@ -443,8 +578,12 @@ std::optional<TrackMetadata> YtResolver::resolve_track_info(const std::string& u
 }
 
 std::optional<std::string> YtResolver::resolve_stream_url(const std::string& video_id_or_url) {
+    last_resolver_error = nullptr;
     std::string clean_url = sanitize_url(video_id_or_url);
-    if (clean_url.empty()) return std::nullopt;
+    if (detect_url_type(clean_url) == UrlType::Unknown) {
+        last_resolver_error = "Informe uma URL ou ID do YouTube";
+        return std::nullopt;
+    }
 
     {
         std::lock_guard<std::mutex> lock(m_cache_mutex);
@@ -468,12 +607,11 @@ std::optional<std::string> YtResolver::resolve_stream_url(const std::string& vid
         "-f", "ba/b",
         "-g",
         "--no-playlist",
-        "--no-warnings",
-        target_url
+        "--socket-timeout", "10", "--retries", "1",
+        "--", target_url
     };
 
-    std::string cmd = build_command_line(args);
-    std::string output = execute_command(cmd);
+    std::string output = run_extractor(args);
 
     std::istringstream iss(output);
     std::string line;
@@ -497,20 +635,23 @@ std::optional<std::string> YtResolver::resolve_stream_url(const std::string& vid
 }
 
 std::optional<PlaylistMetadata> YtResolver::resolve_playlist(const std::string& playlist_url) {
+    last_resolver_error = nullptr;
     std::string clean_url = sanitize_url(playlist_url);
-    if (clean_url.empty()) return std::nullopt;
+    if (detect_url_type(clean_url) != UrlType::Playlist) {
+        last_resolver_error = "Informe uma playlist do YouTube";
+        return std::nullopt;
+    }
 
     std::vector<std::string> args = {
         "--flat-playlist",
         "--playlist-end", "50",
         "-J",
         "--skip-download",
-        "--no-warnings",
-        clean_url
+        "--socket-timeout", "10", "--retries", "1",
+        "--", clean_url
     };
 
-    std::string cmd = build_command_line(args);
-    std::string raw_json = execute_command(cmd);
+    std::string raw_json = run_extractor(args);
 
     if (raw_json.empty()) {
         return std::nullopt;
@@ -534,8 +675,10 @@ std::optional<PlaylistMetadata> YtResolver::resolve_playlist(const std::string& 
 
         if (j.contains("entries") && j["entries"].is_array()) {
             for (const auto& item : j["entries"]) {
+                if (!item.is_object()) continue;
                 TrackMetadata track;
                 track.id = item.value("id", "");
+                if (!is_video_id(track.id)) continue;
                 track.title = item.value("title", "Unknown Title");
                 track.uploader = item.value("uploader", item.value("channel", "Unknown Artist"));
                 track.duration_seconds = item.value("duration", 0);
@@ -671,10 +814,7 @@ bool YtResolver::save_cache_to_file(const std::string& filepath) const {
         }
         j["streams"] = streams;
 
-        std::ofstream ofs(filepath);
-        if (!ofs.is_open()) return false;
-        ofs << j.dump(2);
-        return true;
+        return write_session_file(filepath, j.dump(2));
     } catch (...) {
         return false;
     }
@@ -736,8 +876,7 @@ std::string YtResolver::get_compiled_hash() {
 }
 
 std::string YtResolver::get_local_version() const {
-    std::string cmd = build_command_line({"--version"});
-    std::string out = execute_command(cmd);
+    std::string out = run_extractor({"--version"});
     std::istringstream iss(out);
     std::string first_line;
     if (std::getline(iss, first_line)) {
@@ -782,9 +921,9 @@ bool YtResolver::is_version_newer(const std::string& candidate, const std::strin
     return false;
 }
 
-std::string YtResolver::fetch_remote_latest_version(bool master_channel) const {
-    const char* api_url = master_channel
-        ? "https://api.github.com/repos/yt-dlp/yt-dlp-master-builds/releases/latest"
+std::string YtResolver::fetch_remote_latest_version(bool nightly_channel) const {
+    const char* api_url = nightly_channel
+        ? "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest"
         : "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest";
 
     std::string raw_response;
@@ -818,8 +957,8 @@ std::string YtResolver::fetch_remote_latest_version(bool master_channel) const {
         InternetCloseHandle(hInternet);
     }
 #else
-    std::string curl_cmd = std::string("curl -sL --max-time 5 -A \"Freenamp/1.0\" \"") + api_url + "\"";
-    raw_response = execute_command(curl_cmd);
+    const auto response = run_process({"curl", "-fsL", "--max-time", "5", "-A", "Freenamp/1.0", api_url}, m_cancelled);
+    if (response.success) raw_response = response.text;
 #endif
 
     if (raw_response.empty()) return "";
@@ -835,45 +974,14 @@ std::string YtResolver::fetch_remote_latest_version(bool master_channel) const {
 }
 
 bool YtResolver::check_for_update() const {
-    std::string compiled_ver = get_compiled_version();
-    std::string local_ver = get_local_version();
-
-    // Determine effective baseline version (compiled version or local binary version)
-    std::string baseline = compiled_ver;
-    if (baseline.empty() || baseline == "0000.00.00") {
-        baseline = local_ver;
-    } else if (!local_ver.empty() && is_version_newer(local_ver, baseline)) {
-        baseline = local_ver;
-    }
-
-    if (baseline.empty() || baseline == "0000.00.00") {
-        return false;
-    }
-
-    // Count dots: 3 dots (YYYY.MM.DD.HHMMSS) = master/nightly channel, 2 dots (YYYY.MM.DD) = stable channel
-    size_t dot_count = std::count(baseline.begin(), baseline.end(), '.');
-    bool is_master_channel = (dot_count >= 3);
-
-    std::string remote_ver = fetch_remote_latest_version(is_master_channel);
-    if (!remote_ver.empty() && is_version_newer(remote_ver, baseline)) {
-        return true;
-    }
-
-    // If on master channel, also check stable release just in case
-    if (is_master_channel) {
-        std::string stable_ver = fetch_remote_latest_version(false);
-        if (!stable_ver.empty() && is_version_newer(stable_ver, baseline)) {
-            return true;
-        }
-    }
-
-    return false;
+    const auto installed = get_local_version();
+    const auto latest = fetch_remote_latest_version(true);
+    return !installed.empty() && !latest.empty() && is_version_newer(latest, installed);
 }
 
 bool YtResolver::update_ytdlp_binary() {
-    std::string cmd = build_command_line({"-U"});
-    std::string out = execute_command(cmd);
-    return !out.empty();
+    run_extractor({"--update-to", "nightly"});
+    return !last_resolver_error && !get_local_version().empty();
 }
 
 } // namespace freenamp::backend

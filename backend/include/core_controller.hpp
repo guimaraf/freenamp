@@ -10,6 +10,8 @@
 #include <mutex>
 #include <vector>
 #include <thread>
+#include <deque>
+#include <map>
 
 namespace freenamp::backend {
 
@@ -21,6 +23,8 @@ public:
     explicit CoreController(std::string ytdlp_path = "bin/yt-dlp");
 #endif
     ~CoreController();
+    // Call on the UI thread before final persistence. Safe to call repeatedly.
+    void shutdown();
     CoreController(const CoreController&) = delete;
     CoreController& operator=(const CoreController&) = delete;
 
@@ -61,6 +65,7 @@ public:
     std::string get_current_title() const;
     void set_current_title(const std::string& title) { m_current_title = title; }
     std::string get_status_text() const;
+    bool has_status_error() const { return m_status_error; }
     void set_status_text(const std::string& status) { m_status_message = status; }
     std::array<float, AudioEngine::SPECTRUM_BANDS> get_spectrum_bands();
     bool is_loading() const { return m_is_loading.load(); }
@@ -101,6 +106,7 @@ private:
 
     std::string m_current_title = "Freenamp Ready";
     std::string m_status_message = "Ready";
+    bool m_status_error = false;
     std::atomic<bool> m_is_loading = false;
     std::atomic<int> m_loading_progress{0};
     std::atomic<uint64_t> m_current_resolve_id{0};
@@ -112,16 +118,30 @@ private:
     std::string m_channels = "STEREO";
     EventCallback m_event_cb;
 
-    // Shutdown token: set to true in destructor to cancel in-flight background threads
+    // UI state, playlist changes and events are applied only by the calling main thread.
+    // Workers publish immutable results into the completion queue.
     std::atomic<bool> m_shutdown{false};
-    std::mutex m_threads_mutex;
-    std::vector<std::thread> m_bg_threads; // Tracked background threads (joinable on shutdown)
+    struct BackgroundWorker {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> done;
+    };
+    std::vector<BackgroundWorker> m_bg_threads;
+    std::mutex m_completion_mutex;
+    std::deque<std::function<void(bool)>> m_completions;
+    std::map<uint64_t, std::function<void(bool)>> m_import_results;
+    uint64_t m_next_import_id = 0;
+    uint64_t m_next_import_to_apply = 0;
+    size_t m_pending_imports = 0;
+    bool m_resolving_track = false;
+    void post_completion(std::function<void(bool)> completion);
+    void consume_completions(bool allow_playback);
+    void refresh_loading();
 
     void notify_event(const std::string& event_name);
     void play_current_playlist_track(bool force_re_resolve = false);
     void handle_playback_error();
     // Launches a background thread, registers it for clean join on shutdown
-    void launch_bg_thread(std::function<void()> fn);
+    bool launch_bg_thread(std::function<void()> fn);
     int m_track_retry_count = 0;
 };
 

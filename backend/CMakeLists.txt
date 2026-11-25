@@ -65,6 +65,25 @@ target_link_libraries(test_url_flow PRIVATE
     freenamp_backend
 )
 
+if(BUILD_TESTING)
+    foreach(test_target IN ITEMS test_yt_resolver test_audio_playlist test_url_flow)
+        # Keep assert-based checks active in CI's Release configuration.
+        if(MSVC)
+            target_compile_options(${test_target} PRIVATE /UNDEBUG)
+        else()
+            target_compile_options(${test_target} PRIVATE -UNDEBUG)
+        endif()
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${test_target}_data")
+    endforeach()
+    add_test(NAME resolver_offline COMMAND test_yt_resolver --offline)
+    add_test(NAME audio_playlist_offline COMMAND test_audio_playlist --offline)
+    add_test(NAME url_flow_offline COMMAND test_url_flow "$<TARGET_FILE:test_url_flow>")
+    set_tests_properties(resolver_offline PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test_yt_resolver_data")
+    set_tests_properties(audio_playlist_offline PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test_audio_playlist_data")
+    set_tests_properties(url_flow_offline PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test_url_flow_data")
+    set_tests_properties(resolver_offline audio_playlist_offline url_flow_offline PROPERTIES TIMEOUT 30)
+endif()
+
 if(WIN32)
     # Copy dlls to test target output
     add_custom_command(TARGET test_audio_playlist POST_BUILD

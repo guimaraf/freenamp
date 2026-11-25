@@ -7,6 +7,8 @@
 #include <mutex>
 #include <atomic>
 #include <future>
+#include <thread>
+#include <chrono>
 
 namespace freenamp::backend {
 
@@ -19,11 +21,17 @@ enum class RepeatMode {
 class PlaylistManager {
 public:
     PlaylistManager();
-    ~PlaylistManager() = default;
+    ~PlaylistManager();
+    void shutdown_prefetch();
+    void apply_prefetch_result();
 
     // Track list management
-    void add_track(const TrackMetadata& track);
-    void add_playlist(const PlaylistMetadata& playlist);
+    size_t add_track(const TrackMetadata& track);
+    struct ImportResult { size_t added = 0; std::optional<size_t> first_index; };
+    ImportResult add_playlist(const PlaylistMetadata& playlist);
+    static std::string track_identity(const TrackMetadata& track);
+    int find_track(const std::string& identity) const;
+    bool set_stream_url_for_identity(const std::string& identity, const std::string& stream_url);
     bool remove_track(size_t index);
     bool remove_tracks(const std::vector<size_t>& indices);
     void clear();
@@ -75,11 +83,15 @@ private:
     std::mt19937 m_rng;
 
     // Async prefetch tracking
-    std::atomic<bool> m_prefetch_in_progress = false;
-    int m_prefetched_index = -1;
+    std::thread m_prefetch_thread;
+    std::atomic<bool> m_prefetch_done{false};
+    bool m_prefetch_shutdown = false;
+    std::string m_prefetch_identity;
+    std::optional<std::string> m_prefetch_result;
+    std::chrono::steady_clock::time_point m_prefetch_retry_after{};
 
     void rebuild_shuffle_indices();
-    void resolve_track_async(YtResolver& resolver, size_t index);
+
 };
 
 } // namespace freenamp::backend

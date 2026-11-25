@@ -9,12 +9,9 @@ $libsDir = Join-Path $compileDir "libs"
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 New-Item -ItemType Directory -Force -Path $libsDir | Out-Null
 
-# 1. yt-dlp.exe portátil
-$ytdlpDest = Join-Path $binDir "yt-dlp.exe"
-if (-not (Test-Path $ytdlpDest)) {
-    Write-Host "[Freenamp] Baixando yt-dlp.exe portátil..."
-    curl.exe -L -o $ytdlpDest "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-}
+# 1. Official yt-dlp nightly and Deno, verified before provisioning.
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'freenamp-update.ps1') -Action UpdateExtractor -InstallDir $compileDir
+if ($LASTEXITCODE -ne 0) { throw 'Verified yt-dlp/Deno provisioning failed.' }
 
 # 2. nlohmann/json.hpp
 $jsonDir = Join-Path $libsDir "nlohmann"
