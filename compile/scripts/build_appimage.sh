@@ -12,6 +12,8 @@ echo "=========================================================="
 echo " Freenamp - Empacotamento AppImage Standalone"
 echo "=========================================================="
 
+bash "${SCRIPT_DIR}/fetch_deps.sh"
+
 # 1. Certificar que o binário foi compilado
 if [ ! -f "${BUILD_DIR}/frontend/freenamp" ] && [ ! -f "${BUILD_DIR}/freenamp" ]; then
     echo "[Freenamp] Compilando projeto antes de empacotar AppImage..."
@@ -42,11 +44,8 @@ elif [ -f "${BUILD_DIR}/frontend/libfreenamp_core.so" ]; then
     cp -f "${BUILD_DIR}/frontend/libfreenamp_core.so" "${APPDIR}/usr/lib/libfreenamp_core.so"
 fi
 
-# Extrator yt-dlp
-if [ -f "${ROOT_DIR}/compile/bin/yt-dlp" ]; then
-    cp -f "${ROOT_DIR}/compile/bin/yt-dlp" "${APPDIR}/usr/bin/yt-dlp"
-    chmod +x "${APPDIR}/usr/bin/yt-dlp"
-fi
+# YouTube extractor and JavaScript runtime.
+install -m 755 "${ROOT_DIR}/compile/bin/yt-dlp" "${ROOT_DIR}/compile/bin/deno" "${APPDIR}/usr/bin/"
 
 # Desktop file e ícone
 cp -f "${ROOT_DIR}/assets/freenamp.desktop" "${APPDIR}/freenamp.desktop"

@@ -17,7 +17,7 @@ echo "=========================================================="
 
 # 1. Checagem de ferramentas básicas
 MISSING_TOOLS=()
-for tool in cmake g++ pkg-config curl; do
+for tool in cmake g++ pkg-config curl unzip; do
     if ! command -v "$tool" &>/dev/null; then
         MISSING_TOOLS+=("$tool")
     fi
@@ -26,7 +26,7 @@ done
 if [ ${#MISSING_TOOLS[@]} -ne 0 ]; then
     echo "[ERRO] Ferramentas necessárias ausentes: ${MISSING_TOOLS[*]}"
     echo "Instale os pacotes no Ubuntu executando:"
-    echo "  sudo apt update && sudo apt install -y build-essential cmake pkg-config libsdl2-dev libmpv-dev curl"
+    echo "  sudo apt update && sudo apt install -y build-essential cmake pkg-config libsdl2-dev libmpv-dev curl unzip"
     exit 1
 fi
 
@@ -72,15 +72,7 @@ else
     exit 1
 fi
 
-# Copiar extrator yt-dlp para bin/
-if [ -f "${ROOT_DIR}/compile/bin/yt-dlp" ]; then
-    cp -f "${ROOT_DIR}/compile/bin/yt-dlp" "${DIST_BIN_DIR}/yt-dlp"
-    chmod +x "${DIST_BIN_DIR}/yt-dlp"
-else
-    echo "[AVISO] yt-dlp não encontrado em compile/bin/yt-dlp. Baixando agora..."
-    curl -L -o "${DIST_BIN_DIR}/yt-dlp" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-    chmod +x "${DIST_BIN_DIR}/yt-dlp"
-fi
+install -m 755 "${ROOT_DIR}/compile/bin/yt-dlp" "${ROOT_DIR}/compile/bin/deno" "${DIST_BIN_DIR}/"
 
 # Copiar assets e arquivos informativos
 if [ -d "${ROOT_DIR}/assets" ]; then

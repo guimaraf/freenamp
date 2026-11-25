@@ -32,7 +32,8 @@ jobs:
             pkg-config \
             libsdl2-dev \
             libmpv-dev \
-            curl
+            curl \
+            unzip
 
       - name: Fetch project dependencies
         run: |

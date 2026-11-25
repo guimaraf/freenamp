@@ -15,14 +15,14 @@
 > 
 > **Português**: O Freenamp é um projeto de código aberto desenvolvido estritamente para fins educacionais e de pesquisa técnica em interface gráfica retrô modular, processamento de sinal digital (DSP) e interoperabilidade multimídia em C++20, SDL2 e `libmpv`. O Freenamp **não** hospeda, armazena, distribui nem mantém em cache nenhum arquivo de áudio, vídeo ou conteúdo protegido por direitos autorais. Toda reprodução e resolução de streams ocorrem exclusivamente no lado do cliente por solicitação direta do usuário final através do `yt-dlp`. O usuário é o único responsável por assegurar a conformidade de seu uso com as leis de direitos autorais e os termos de serviço aplicáveis em sua jurisdição.
 
-### 🚀 Download (v1.1.13)
+### 🚀 Download (v1.1.14)
 
 | Platform | Package | Description |
 | :--- | :--- | :--- |
-| **Linux (x86_64)** | [freenamp-linux-x86_64.tar.gz](https://github.com/guimaraf/freenamp/releases/download/v1.1.13/freenamp-linux-x86_64.tar.gz) | 100% portable bundle with bundled libraries & `iniciar_freenamp.sh` launcher |
-| **Linux (x86_64)** | [Freenamp-x86_64.AppImage](https://github.com/guimaraf/freenamp/releases/download/v1.1.13/Freenamp-x86_64.AppImage) | Standalone single-file AppImage executable |
-| **Windows (x64)** | [freenamp-windows-x64.zip](https://github.com/guimaraf/freenamp/releases/download/v1.1.13/freenamp-windows-x64.zip) | Standalone portable bundle with isolated DLLs in `core/` |
-| **Checksums** | [SHA256SUMS.txt](https://github.com/guimaraf/freenamp/releases/download/v1.1.13/SHA256SUMS.txt) | Cryptographic verification |
+| **Linux (x86_64)** | [freenamp-linux-x86_64.tar.gz](https://github.com/guimaraf/freenamp/releases/download/v1.1.14/freenamp-linux-x86_64.tar.gz) | 100% portable bundle with bundled libraries & `iniciar_freenamp.sh` launcher |
+| **Linux (x86_64)** | [Freenamp-x86_64.AppImage](https://github.com/guimaraf/freenamp/releases/download/v1.1.14/Freenamp-x86_64.AppImage) | Standalone single-file AppImage executable |
+| **Windows (x64)** | [freenamp-windows-x64.zip](https://github.com/guimaraf/freenamp/releases/download/v1.1.14/freenamp-windows-x64.zip) | Standalone portable bundle with isolated DLLs in `core/` |
+| **Checksums** | [SHA256SUMS.txt](https://github.com/guimaraf/freenamp/releases/download/v1.1.14/SHA256SUMS.txt) | Cryptographic verification |
 
 ---
 
@@ -192,14 +192,14 @@ Para gerar e instalar o Freenamp em outra pasta, use `build_freenamp.ps1 -Instal
 
 #### 1. Pré-requisitos de compilação (Ubuntu / Debian / Mint):
 ```bash
-sudo apt update && sudo apt install -y build-essential cmake pkg-config libsdl2-dev libmpv-dev curl
+sudo apt update && sudo apt install -y build-essential cmake pkg-config libsdl2-dev libmpv-dev curl unzip
 ```
 
 #### 2. Gerar o pacote portátil standalone com 1 comando:
 ```bash
 bash compile/scripts/build_linux_portable.sh
 ```
-A pasta portátil estará pronta em `build/freenamp_portable_linux/`, contendo o binário `freenamp`, as bibliotecas em `core/`, o extrator em `bin/yt-dlp` e os arquivos de cache/assets.
+A pasta portátil estará pronta em `build/freenamp_portable_linux/`, contendo o binário `freenamp`, as bibliotecas em `core/`, o extrator em `bin/yt-dlp` e o runtime JavaScript em `bin/deno` e os arquivos de cache/assets.
 
 #### 3. Execução:
 ```bash

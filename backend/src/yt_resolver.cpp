@@ -475,13 +475,15 @@ std::string YtResolver::run_extractor(const std::vector<std::string>& args) cons
     std::vector<std::string> command{m_ytdlp_path, "--ignore-config"};
 #ifdef _WIN32
     const auto deno = std::filesystem::path(to_wide_string(m_ytdlp_path)).parent_path() / L"deno.exe";
+#else
+    const auto deno = std::filesystem::path(m_ytdlp_path).parent_path() / "deno";
+#endif
     std::error_code error;
-    if (std::filesystem::is_regular_file(deno, error)) {
+    if (!deno.parent_path().empty() && std::filesystem::is_regular_file(deno, error)) {
         const auto path = deno.u8string();
         command.emplace_back("--js-runtimes");
         command.emplace_back("deno:" + std::string(path.begin(), path.end()));
     }
-#endif
     command.insert(command.end(), args.begin(), args.end());
     const auto result = run_process(command, m_cancelled);
     last_resolver_error = describe_process(result);
