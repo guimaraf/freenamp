@@ -19,7 +19,7 @@ namespace {
 constexpr auto last_update_file = L".freenamp-last-update.json";
 
 HANDLE launch_updater(const std::filesystem::path& install, const std::wstring& action,
-                       const std::filesystem::path& status, DWORD parent = 0) {
+                       const std::filesystem::path& status, const std::wstring& release_tag, DWORD parent = 0) {
     const auto script = install / L"freenamp-update.ps1";
     if (!std::filesystem::is_regular_file(script)) {
         throw std::runtime_error("Copie o pacote Windows completo para habilitar as atualizacoes.");
@@ -29,11 +29,15 @@ HANDLE launch_updater(const std::filesystem::path& install, const std::wstring& 
     const auto length = GetSystemDirectoryW(system_dir, MAX_PATH);
     if (length == 0 || length >= MAX_PATH) throw std::runtime_error("PowerShell do Windows nao encontrado.");
     const auto powershell = std::filesystem::path(system_dir) / L"WindowsPowerShell/v1.0/powershell.exe";
-    const std::vector<std::wstring> options{
+    std::vector<std::wstring> options{
         powershell.wstring(), L"-NoProfile", L"-NonInteractive", L"-ExecutionPolicy", L"Bypass",
         L"-File", script.wstring(), L"-Action", action, L"-InstallDir", install.wstring(),
-        L"-StatusFile", status.wstring()
+        L"-StatusFile", status.wstring(), L"-RunningVersion", L"" FREENAMP_VERSION
     };
+    if (!release_tag.empty()) {
+        options.emplace_back(L"-ReleaseTag");
+        options.push_back(release_tag);
+    }
     std::wstring command;
     for (const auto& option : options) {
         if (!command.empty()) command += L' ';
@@ -73,7 +77,7 @@ PortableUpdate::Result PortableUpdate::read_result(const std::filesystem::path& 
 }
 
 PortableUpdate::Result PortableUpdate::run(const std::filesystem::path& install, const std::wstring& action,
-                                           const std::atomic<bool>* cancelled) {
+                                           const std::atomic<bool>* cancelled, const std::wstring& release_tag) {
     wchar_t temp[MAX_PATH]{}, result_file[MAX_PATH]{};
     const auto length = GetTempPathW(MAX_PATH, temp);
     if (length == 0 || length >= MAX_PATH || !GetTempFileNameW(temp, L"frn", 0, result_file)) {
@@ -82,7 +86,7 @@ PortableUpdate::Result PortableUpdate::run(const std::filesystem::path& install,
     const std::filesystem::path status(result_file);
     Result result;
     try {
-        HANDLE process = launch_updater(install, action, status);
+        HANDLE process = launch_updater(install, action, status, release_tag);
         DWORD wait;
         for (;;) {
             wait = WaitForSingleObject(process, 100);
@@ -127,19 +131,21 @@ void PortableUpdate::open_menu() {
     m_pending = std::async(std::launch::async, [this] {
         return run(m_install_dir, L"CheckUpdates", &m_cancelled);
     });
-    m_checking = true;
 }
 
 bool PortableUpdate::show_menu(SDL_Window* window, backend::YtResolver& resolver, const Result& result) {
     std::vector<SDL_MessageBoxButtonData> buttons{
         {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Fechar"},
     };
-    if (result.extractor.state == "available") buttons.push_back({0, 1, "YouTube"});
-    if (m_ready) buttons.push_back({0, 3, "Reiniciar"});
-    else if (result.app.state == "available") buttons.push_back({0, 2, "Freenamp"});
+    const auto& app = result.app;
+    if (result.extractor.state == "available") buttons.push_back({0, 1, "Atualizar YouTube"});
+    if (app.state == "ready") buttons.push_back({0, 3, "Reiniciar e aplicar"});
+    else if (app.state == "available") buttons.push_back({0, 2, "Baixar Freenamp"});
 
-    std::string description = "Versao instalada do Freenamp: " FREENAMP_VERSION "\n\n";
-    description += m_ready ? "Freenamp " + m_prepared_version + " pronto para instalar." : result.app.message;
+    std::string description = "Freenamp instalado: " FREENAMP_VERSION "\n";
+    if (app.state == "ready") description += "Freenamp " + app.version + " pronto para instalar.";
+    else if (app.state == "available") description += "Disponivel no GitHub: " + app.version;
+    else description += app.message;
     if (!result.extractor.message.empty()) description += "\n" + result.extractor.message;
     const SDL_MessageBoxData dialog{
         SDL_MESSAGEBOX_INFORMATION, window, "Atualizacoes", description.c_str(),
@@ -147,27 +153,34 @@ bool PortableUpdate::show_menu(SDL_Window* window, backend::YtResolver& resolver
     };
     int clicked = 0;
     if (SDL_ShowMessageBox(&dialog, &clicked) != 0) return false;
-    if (clicked == 3 && m_ready) {
+    if (clicked == 3 && app.state == "ready") {
         try {
             const auto result_file = m_install_dir / last_update_file;
-            HANDLE process = launch_updater(m_install_dir, L"ApplyApp", result_file, GetCurrentProcessId());
+            const auto release_tag = L"v" + std::wstring(app.version.begin(), app.version.end());
+            HANDLE process = launch_updater(m_install_dir, L"ApplyApp", result_file, release_tag, GetCurrentProcessId());
             CloseHandle(process);
             return true;
         } catch (const std::exception& error) {
             show_message(window, error.what(), true);
         }
     } else if (clicked == 1 || clicked == 2) {
-        if (clicked == 2) m_ready = false;
         m_progress.store(0);
         m_progress_message = clicked == 1 ? "Atualizando YouTube..." : "Atualizando Freenamp...";
         SDL_SetWindowTitle(window, clicked == 1 ? "Freenamp - Atualizando YouTube..." : "Freenamp - Buscando atualizacao...");
-        m_pending = std::async(std::launch::async, [this, install = m_install_dir, clicked, &resolver] {
-            if (clicked == 2) return run(install, L"StageApp", &m_cancelled);
+        m_pending = std::async(std::launch::async, [this, install = m_install_dir, clicked, version = app.version, &resolver] {
+            if (clicked == 2) {
+                const auto release_tag = L"v" + std::wstring(version.begin(), version.end());
+                return run(install, L"StageApp", &m_cancelled, release_tag);
+            }
             auto result = run(install, L"StageExtractor", &m_cancelled);
             if (result.state != "ready") return result;
             m_progress.store(90);
             resolver.run_while_idle([&] {
-                if (!m_cancelled.load()) result = run(install, L"ApplyExtractor");
+                if (m_cancelled.load()) {
+                    result = {"error", "Atualizacao do YouTube cancelada.", {}};
+                } else {
+                    result = run(install, L"ApplyExtractor");
+                }
             });
             return result;
         });
@@ -178,19 +191,15 @@ bool PortableUpdate::show_menu(SDL_Window* window, backend::YtResolver& resolver
 bool PortableUpdate::update(SDL_Window* window, backend::YtResolver& resolver) {
     if (!m_pending.valid() ||
         m_pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
-    const bool checking = m_checking;
-    m_checking = false;
     try {
         auto result = m_pending.get();
-        if (checking && (result.state == "checked" || m_ready)) {
+        SDL_SetWindowTitle(window, "Freenamp");
+        if (result.state == "checked") return show_menu(window, resolver, result);
+        if (result.state == "ready") {
+            result.app = result;
             return show_menu(window, resolver, result);
         }
-        if (result.state == "ready") {
-            m_ready = true;
-            m_prepared_version = result.version;
-        }
         const auto message = result.message + (result.version.empty() ? "" : "\nVersao: " + result.version);
-        SDL_SetWindowTitle(window, m_ready ? "Freenamp - Atualizacao pronta (U)" : "Freenamp");
         show_message(window, message, result.state == "error");
     } catch (const std::exception& error) {
         SDL_SetWindowTitle(window, "Freenamp");
@@ -206,7 +215,14 @@ void PortableUpdate::restore_result(SDL_Window* window) {
     const auto result = read_result(file);
     if (result.state != "success" && result.state != "error") return;
     std::filesystem::remove(file, ignored);
-    show_message(window, result.message, result.state == "error");
+    if (result.state == "success" && result.version == FREENAMP_VERSION) {
+        show_message(window, "Freenamp atualizado para a versao " FREENAMP_VERSION ".");
+    } else if (result.state == "success") {
+        show_message(window, "O atualizador esperava a versao " + result.version +
+                             ", mas o Freenamp iniciou na versao " FREENAMP_VERSION ".", true);
+    } else {
+        show_message(window, result.message, true);
+    }
 }
 
 } // namespace freenamp::frontend

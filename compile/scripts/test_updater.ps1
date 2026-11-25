@@ -12,6 +12,7 @@ function Invoke-RestMethod {
     param($Uri,$Headers,$TimeoutSec)
     if ($Uri -match '/repos/yt-dlp/yt-dlp-nightly-builds/') { return $global:FreenampTestYtRelease }
     if ($Uri -match '/repos/denoland/deno/') { return $global:FreenampTestDenoRelease }
+    if ($Uri -match '/releases/tags/v1\.1\.0$' -and $global:FreenampTestPinnedRelease) { return $global:FreenampTestPinnedRelease }
     return $global:FreenampTestRelease
 }
 function Invoke-WebRequest { param($Uri,$Headers,$OutFile,$TimeoutSec,[switch]$UseBasicParsing) Copy-Item -LiteralPath $global:FreenampTestDownloads[$Uri] -Destination $OutFile }
@@ -22,8 +23,11 @@ function Start-Process {
     $state = Get-Content -LiteralPath $global:FreenampTestStatusPath -Raw | ConvertFrom-Json
     Assert ($state.state -in @('success','error')) 'Status exists before relaunch'
 }
-function Run-Updater($Action) {
-    & $script:Updater -Action $Action -InstallDir $script:Install -StatusFile $global:FreenampTestStatusPath -ParentPid 999999 | Out-Null
+function Run-Updater($Action, $RunningVersion, $ReleaseTag) {
+    $versions = @{}
+    if ($RunningVersion) { $versions.RunningVersion = $RunningVersion }
+    if ($ReleaseTag) { $versions.ReleaseTag = $ReleaseTag }
+    & $script:Updater -Action $Action -InstallDir $script:Install -StatusFile $global:FreenampTestStatusPath -ParentPid 999999 @versions | Out-Null
     $result = Get-Content -LiteralPath $global:FreenampTestStatusPath -Raw | ConvertFrom-Json
     Write-Host ($Action + ': ' + $result.state + ' - ' + $result.message)
     return $result
@@ -52,10 +56,22 @@ try {
     $assetUrl = 'https://api.github.com/repos/guimaraf/freenamp/releases/assets/123'
     $global:FreenampTestDownloads[$assetUrl] = $archive
     $global:FreenampTestRelease = [pscustomobject]@{ tag_name='v1.1.0'; draft=$false; prerelease=$false; assets=@([pscustomobject]@{name='freenamp-windows-x64.zip';url=$assetUrl;digest=('sha256:' + (Get-FileHash -LiteralPath $archive).Hash)}) }
-    Assert ((Run-Updater 'CheckApp').state -eq 'available') 'CheckApp detects newer official stable version'
-    Assert ((Run-Updater 'StageApp').state -eq 'ready') 'StageApp verifies and stages official ZIP'
+    $offered = Run-Updater 'CheckApp' '1.0.0'
+    Assert ($offered.state -eq 'available' -and $offered.version -eq '1.1.0') 'CheckApp reports the official stable version separately from the running version'
+    Assert ((Run-Updater 'CheckApp' '1.1.0').state -eq 'up-to-date') 'Running executable version takes precedence over outdated local metadata'
+    $global:FreenampTestPinnedRelease = $global:FreenampTestRelease
+    $global:FreenampTestRelease = [pscustomobject]@{tag_name='v1.2.0';draft=$false;prerelease=$false;assets=@()}
+    $prepared = Run-Updater 'StageApp' '1.0.0' ('v' + $offered.version)
+    Assert ($prepared.state -eq 'ready' -and $prepared.version -eq $offered.version) 'StageApp pins the offered release even when GitHub latest changes'
+    $check = Run-Updater 'CheckApp' '1.0.0'
+    Assert ($check.state -eq 'available' -and $check.version -eq '1.2.0') 'A newer published version is offered over an older staged release'
+    $global:FreenampTestRelease = $global:FreenampTestPinnedRelease
+    $prepared = Run-Updater 'CheckApp' '1.0.0'
+    Assert ($prepared.state -eq 'ready' -and $prepared.version -eq '1.1.0') 'Reopening updates recovers the staged version without another download'
+    Assert ((Run-Updater 'ApplyApp' '1.0.0' 'v1.2.0').state -eq 'error') 'ApplyApp rejects a plan for a different version'
     Assert ((Get-Content -LiteralPath (Join-Path $script:Install 'freenamp.exe') -Raw).Trim() -eq 'old executable') 'Staging leaves application untouched'
-    Assert ((Run-Updater 'ApplyApp').state -eq 'success') 'ApplyApp installs staged application'
+    $global:FreenampTestRelaunched = $false
+    Assert ((Run-Updater 'ApplyApp' '1.0.0' 'v1.1.0').state -eq 'success') 'ApplyApp installs the confirmed staged application'
     Assert $global:FreenampTestRelaunched 'ApplyApp relaunches target installation'
     Assert ((Get-Content -LiteralPath (Join-Path $script:Install 'cache/playlists.json') -Raw).Trim() -eq 'saved playlist') 'Application update preserves cache'
     Assert ((Get-Content -LiteralPath (Join-Path $script:Install 'bin/yt-dlp.exe') -Raw).Trim() -eq 'newer extractor') 'Application update preserves independently updated yt-dlp'
@@ -71,6 +87,7 @@ try {
     $stagedExe = Get-Item -LiteralPath (Join-Path $planFile.DirectoryName ($plan.payload + '/freenamp.exe'))
     'tampered' | Set-Content -LiteralPath $stagedExe.FullName
     Assert ((Run-Updater 'ApplyApp').state -eq 'error') 'ApplyApp rejects modified staged payload'
+    Assert ((Run-Updater 'CheckApp').state -eq 'available') 'Invalidated staging allows a clean download'
     Assert ((Run-Updater 'StageApp').state -eq 'ready') 'Restage before rollback test'
     'rollback original' | Set-Content -LiteralPath (Join-Path $script:Install 'freenamp.exe')
     $global:FreenampTestFailTarget = Join-Path $script:Install 'core/libmpv-2.dll'
@@ -85,10 +102,11 @@ try {
     Assert ((Run-Updater 'ApplyApp').state -eq 'error') 'Copy failure reports rollback error'
     Assert ((Get-Content -LiteralPath (Join-Path $script:Install 'freenamp.exe') -Raw).Trim() -eq 'rollback original') 'Copy failure restores original executable'
     Assert ((Get-Content -LiteralPath (Join-Path $script:Install 'release-info.json') -Raw | ConvertFrom-Json).version -eq '1.0.0') 'Copy failure restores version metadata'
+    Assert ((Run-Updater 'CheckApp').state -eq 'ready') 'Rolled-back update remains available to retry'
     $global:FreenampTestRelease.tag_name = 'latest'
-    Assert ((Run-Updater 'CheckApp').state -eq 'error') 'Non-semver release rejected'
+    Assert ((Run-Updater 'StageApp').state -eq 'error') 'Non-semver release rejected'
     $global:FreenampTestRelease.tag_name = 'v1.1.0'; $global:FreenampTestRelease.prerelease = $true
-    Assert ((Run-Updater 'CheckApp').state -eq 'error') 'Prerelease rejected'
+    Assert ((Run-Updater 'StageApp').state -eq 'error') 'Prerelease rejected'
     $global:FreenampTestRelease.prerelease = $false
     $global:FreenampTestRelease.assets[0].digest = ''
     $checks = Join-Path $testRoot 'SHA256SUMS.txt'
@@ -121,10 +139,10 @@ try {
     $global:FreenampTestDenoRelease = [pscustomobject]@{tag_name='v2.9.8'; assets=@([pscustomobject]@{name='deno-x86_64-pc-windows-msvc.zip';url=$denoUrl;digest=('sha256:'+(Get-FileHash -LiteralPath $denoZip).Hash)})}
     Assert ((Run-Updater 'CheckExtractor').state -eq 'available') 'CheckExtractor identifies missing or outdated binaries'
     $combined = Run-Updater 'CheckUpdates'
-    Assert ($combined.state -eq 'checked' -and $combined.app.state -eq 'available' -and $combined.extractor.state -eq 'available') 'Combined check reports independent update states'
+    Assert ($combined.state -eq 'checked' -and $combined.app.state -eq 'ready' -and $combined.extractor.state -eq 'available') 'Combined check reports independent update states'
     $global:FreenampTestDenoRelease.tag_name = 'invalid'
     $combined = Run-Updater 'CheckUpdates'
-    Assert ($combined.app.state -eq 'available' -and $combined.extractor.state -eq 'error') 'Extractor failure preserves application result'
+    Assert ($combined.app.state -eq 'ready' -and $combined.extractor.state -eq 'error') 'Extractor failure preserves the staged application result'
     $global:FreenampTestDenoRelease.tag_name = 'v2.9.8'
     Assert ((Run-Updater 'StageExtractor').state -eq 'ready') 'StageExtractor verifies both official release assets'
     Assert ((Get-Content -LiteralPath (Join-Path $script:Install 'bin/yt-dlp.exe') -Raw).Trim() -eq 'newer extractor') 'StageExtractor leaves active extractor untouched'
@@ -147,8 +165,9 @@ try {
     $global:FreenampTestDownloads[$publicBase + 'freenamp-windows-x64.zip'] = $archive
     $global:FreenampTestDownloads[$publicBase + 'SHA256SUMS.txt'] = $checks
     '{"version":"1.0.0"}' | Set-Content -LiteralPath (Join-Path $script:Install 'release-info.json')
+    Remove-Item -LiteralPath $planFile.FullName
     Assert ((Run-Updater 'CheckApp').state -eq 'available') 'Public latest release works without API token'
-    Assert ((Run-Updater 'StageApp').state -eq 'ready') 'Public download validates published checksum without API token'
+    Assert ((Run-Updater 'StageApp' '1.0.0' 'v1.1.0').state -eq 'ready') 'Public download pins the chosen tag and validates its published checksum without API token'
     $ytPublic = 'https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/2026.11.25.000000/'
     $denoPublic = 'https://github.com/denoland/deno/releases/download/v2.9.8/'
     $ytChecks = Join-Path $testRoot 'SHA2-256SUMS'

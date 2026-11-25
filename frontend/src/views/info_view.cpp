@@ -12,8 +12,7 @@ void InfoView::render(SDL_Renderer* renderer, backend::CoreController& core,
                       bool updating, int progress, const std::string& message) {
     if (!m_visible) return;
 
-    // 1. Window Frame with title FREENAMP INFO
-    RetroWidgets::draw_window_panel(renderer, m_bounds, "FREENAMP INFO", true);
+    RetroWidgets::draw_window_panel(renderer, m_bounds, "FREENAMP INFO - " FREENAMP_VERSION, true);
 
     int bx = m_bounds.x;
     int by = m_bounds.y;

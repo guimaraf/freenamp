@@ -35,17 +35,14 @@ private:
 
     std::filesystem::path m_install_dir = std::filesystem::current_path();
     std::atomic<bool> m_cancelled{false};
-    bool m_ready = false;
-    bool m_checking = false;
     std::atomic<int> m_progress{0};
     std::string m_progress_message;
-    std::string m_prepared_version;
     std::future<Result> m_pending;
 
     static Result read_result(const std::filesystem::path& file);
     bool show_menu(SDL_Window* window, backend::YtResolver& resolver, const Result& result);
     Result run(const std::filesystem::path& install, const std::wstring& action,
-               const std::atomic<bool>* cancelled = nullptr);
+               const std::atomic<bool>* cancelled = nullptr, const std::wstring& release_tag = {});
     static void show_message(SDL_Window* window, const std::string& message, bool error = false);
 };
 

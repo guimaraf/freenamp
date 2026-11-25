@@ -3,7 +3,9 @@ param(
     [ValidateSet('CheckApp','CheckExtractor','CheckUpdates','StageApp','ApplyApp','StageExtractor','ApplyExtractor','UpdateExtractor')][string]$Action = 'CheckApp',
     [Parameter(Mandatory=$true)][string]$InstallDir,
     [string]$StatusFile,
-    [int]$ParentPid = 0
+    [int]$ParentPid = 0,
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$RunningVersion,
+    [ValidatePattern('^v\d+\.\d+\.\d+$')][string]$ReleaseTag
 )
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -37,16 +39,19 @@ function Api-Headers {
 function Get-Release($Repository, $Tag = 'latest') {
     if ($env:GITHUB_TOKEN) {
         if ($Tag -ne 'latest') { $Tag = 'tags/' + [uri]::EscapeDataString($Tag) }
-        return Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/$Tag" -Headers (Api-Headers) -TimeoutSec 60
+        $headers = Api-Headers
+        $headers['Cache-Control'] = 'no-cache'
+        return Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/$Tag" -Headers $headers -TimeoutSec 60
     }
-    if ($Tag -ne 'latest' -or $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Invalid public release request.' }
-    $tagName = Get-PublicTag $Repository
-    return [pscustomobject]@{tag_name=$tagName; draft=$false; prerelease=$false; publicRepository=$Repository; assets=@()}
+    if ($Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Invalid public release request.' }
+    if ($Tag -eq 'latest') { $Tag = Get-PublicTag $Repository }
+    return [pscustomobject]@{tag_name=$Tag; draft=$false; prerelease=$false; publicRepository=$Repository; assets=@()}
 }
 function Get-PublicTag($Repository) {
-    $request = [Net.HttpWebRequest]::Create("https://github.com/$Repository/releases/latest")
+    $request = [Net.HttpWebRequest]::Create("https://github.com/$Repository/releases/latest?check=$([guid]::NewGuid().ToString('N'))")
     $request.AllowAutoRedirect = $false
     $request.UserAgent = 'Freenamp-Updater'
+    $request.CachePolicy = New-Object Net.Cache.RequestCachePolicy ([Net.Cache.RequestCacheLevel]::NoCacheNoStore)
     $request.Timeout = 60000
     $response = $request.GetResponse()
     try {
@@ -146,14 +151,36 @@ function Read-AppVersion($Directory) {
     if ($info.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid installed application version.' }
     return [version]$info.version
 }
-function Latest-App {
-    $release = Get-Release $script:Repository
+function Installed-AppVersion {
+    if ($RunningVersion) { return [version]$RunningVersion }
+    return Read-AppVersion $InstallDir
+}
+function App-Release($Tag = 'latest') {
+    $release = Get-Release $script:Repository $Tag
+    if ($Tag -ne 'latest' -and $release.tag_name -cne $Tag) { throw 'GitHub returned a different release than requested.' }
     if ($release.draft -or $release.prerelease -or $release.tag_name -notmatch '^v(\d+\.\d+\.\d+)$') { throw 'Latest release is not an official stable version.' }
     return @{ release=$release; version=[version]$Matches[1] }
 }
+function Read-AppPlan($Current) {
+    if (-not (Test-Path -LiteralPath $planFile -PathType Leaf)) { return }
+    $plan = Get-Content -LiteralPath $planFile -Raw | ConvertFrom-Json
+    if ($plan.installDir -ine $InstallDir -or $plan.version -notmatch '^\d+\.\d+\.\d+$' -or
+        $plan.payload -notmatch '^payload-[a-f0-9]{32}$') { throw 'Invalid staged application manifest.' }
+    if ([version]$plan.version -le $Current) { return }
+    if (-not (Test-Path -LiteralPath (Join-Path $stage $plan.payload) -PathType Container)) { return }
+    return $plan
+}
 function App-Status {
     try {
-        $current = Read-AppVersion $InstallDir; $latest = Latest-App
+        $current = Installed-AppVersion
+        try { $prepared = Read-AppPlan $current } catch { $prepared = $null }
+        try { $latest = App-Release } catch {
+            if (-not $prepared) { throw }
+            $latest = $null
+        }
+        if ($prepared -and (-not $latest -or [version]$prepared.version -ge $latest.version)) {
+            return @{state='ready'; message='Atualizacao verificada e pronta para instalar.'; version=$prepared.version}
+        }
         if ($latest.version -gt $current) { return @{state='available'; message='Nova versao do Freenamp disponivel.'; version=$latest.version.ToString()} }
         return @{state='up-to-date'; message='Freenamp atualizado.'; version=$current.ToString()}
     } catch { return @{state='error'; message=('Verificacao falhou: ' + $_.Exception.Message.Split([Environment]::NewLine)[0]); version=''} }
@@ -287,9 +314,9 @@ try {
     $planFile = Join-Path $stage 'plan.json'
     switch ($Action) {
         'CheckApp' {
-            $current = Read-AppVersion $InstallDir; $latest = Latest-App
-            if ($latest.version -gt $current) { Write-Status 'available' 'Nova versao do Freenamp disponivel.' $latest.version.ToString() }
-            else { Write-Status 'up-to-date' 'Freenamp atualizado.' $current.ToString() }
+            $result = App-Status
+            Write-Status $result.state $result.message $result.version
+            if ($result.state -eq 'error') { exit 1 }
         }
         'CheckExtractor' {
             $result = Extractor-Status
@@ -302,12 +329,11 @@ try {
         }
         'StageApp' {
             Write-Status 'progress' 'Verificando versao' '' 5 | Out-Null
-            $current = Read-AppVersion $InstallDir; $latest = Latest-App
+            $current = Installed-AppVersion
+            $latest = if ($ReleaseTag) { App-Release $ReleaseTag } else { App-Release }
             if ($latest.version -le $current) { Write-Status 'up-to-date' 'Freenamp atualizado.' $current.ToString(); break }
             if (Test-Path -LiteralPath $planFile) {
-                $oldPlan = Get-Content -LiteralPath $planFile -Raw | ConvertFrom-Json
-                if ($oldPlan.payload -match '^payload-[a-f0-9]{32}$') { Remove-StagedDirectory (Join-Path $stage $oldPlan.payload) }
-                Remove-Item -LiteralPath $planFile -Force
+                try { $oldPlan = Get-Content -LiteralPath $planFile -Raw | ConvertFrom-Json } catch { $oldPlan = $null }
             }
             $payloadName = 'payload-' + [guid]::NewGuid().ToString('N')
             $payload = Join-Path $stage $payloadName
@@ -321,8 +347,15 @@ try {
             }
             if ((Read-AppVersion $payload) -ne $latest.version) { throw 'Release tag and package version do not match.' }
             $files = @(App-Files $payload)
-            @{ installDir=$InstallDir; version=$latest.version.ToString(); payload=$payloadName; files=$files } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $planFile -Encoding UTF8
-            Remove-Item -LiteralPath $archive -Force
+            $newPlanFile = Join-Path $stage ($payloadName + '.json')
+            try {
+                @{ installDir=$InstallDir; version=$latest.version.ToString(); payload=$payloadName; files=$files } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $newPlanFile -Encoding UTF8
+                Install-FileAtomic $newPlanFile $planFile
+            } finally { Remove-Item -LiteralPath $newPlanFile -Force -ErrorAction SilentlyContinue }
+            if ($oldPlan.installDir -ieq $InstallDir -and $oldPlan.payload -match '^payload-[a-f0-9]{32}$') {
+                try { Remove-StagedDirectory (Join-Path $stage $oldPlan.payload) } catch { }
+            }
+            Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
             Write-Status 'ready' 'Atualizacao verificada e pronta para instalar.' $latest.version.ToString()
         }
         'ApplyApp' {
@@ -334,17 +367,22 @@ try {
             }
             if (Get-Process -Name freenamp -ErrorAction SilentlyContinue | Where-Object { $_.Path -ieq (Join-Path $InstallDir 'freenamp.exe') }) { throw 'Target installation is still running.' }
             $resumeApp = $true
-            $plan = Get-Content -LiteralPath $planFile -Raw | ConvertFrom-Json
-            if ($plan.installDir -ine $InstallDir -or $plan.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Staged installation does not match.' }
-            if ($plan.payload -notmatch '^payload-[a-f0-9]{32}$') { throw 'Invalid staging directory.' }
+            $plan = Read-AppPlan (Installed-AppVersion)
+            if (-not $plan) { throw 'No newer staged application is ready to install.' }
+            if ($ReleaseTag -and $ReleaseTag -cne ('v' + $plan.version)) { throw 'The prepared update changed. Check for updates again.' }
             $payload = Join-Path $stage $plan.payload
-            Assert-NoLinks $payload
-            if ([version]$plan.version -le (Read-AppVersion $InstallDir)) { throw 'Staged update is no longer newer than the installed application.' }
-            $actual = @(App-Files $payload)
-            if ($actual.Count -ne @($plan.files).Count) { throw 'Staged payload changed.' }
-            foreach ($file in $actual) {
-                $record = @($plan.files | Where-Object { $_.path -ceq $file.path -and $_.sha256 -ceq $file.sha256 })
-                if ($record.Count -ne 1) { throw 'Staged payload checksum changed.' }
+            try {
+                Assert-NoLinks $payload
+                $actual = @(App-Files $payload)
+                if ($actual.Count -ne @($plan.files).Count) { throw 'Staged payload changed.' }
+                foreach ($file in $actual) {
+                    $record = @($plan.files | Where-Object { $_.path -ceq $file.path -and $_.sha256 -ceq $file.sha256 })
+                    if ($record.Count -ne 1) { throw 'Staged payload checksum changed.' }
+                }
+            } catch {
+                Remove-Item -LiteralPath $planFile -Force -ErrorAction SilentlyContinue
+                try { Remove-StagedDirectory $payload } catch { }
+                throw
             }
             $backup = Join-Path $stage ('backup-' + [guid]::NewGuid().ToString('N'))
             [IO.Directory]::CreateDirectory($backup) | Out-Null
