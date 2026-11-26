@@ -92,7 +92,7 @@ public:
     void trigger_ytdlp_update();
 
     // Periodic tick to be called from the main loop (~60 FPS)
-    // Handles gapless pre-fetching, track advancement, and status
+    // Handles next-track preparation, track advancement, and status
     void update();
 
     // Callbacks for events (optional UI listeners)
@@ -142,6 +142,23 @@ private:
     void start_playlist_stream(const TrackMetadata& track, StreamAttempt attempt);
     void play_current_playlist_track(StreamAttempt attempt = StreamAttempt::Cached);
     void handle_playback_error();
+    struct NextStream {
+        enum class Phase { Resolving, Opening, Failed };
+        uint64_t request;
+        std::string identity;
+        TrackMetadata track;
+        Phase phase = Phase::Resolving;
+        bool selected = false;
+        bool tried_aac = false;
+        std::unique_ptr<AudioEngine> player;
+        std::chrono::steady_clock::time_point opening_deadline{};
+    };
+    static constexpr double next_track_lead_seconds = 30.0;
+    uint64_t m_next_stream_request = 0;
+    std::optional<NextStream> m_next_stream;
+    void resolve_next_stream(AudioFormatPreference format);
+    void open_next_stream();
+    void update_next_stream(PlaybackState current_state);
     // Launches a background thread, registers it for clean join on shutdown
     bool launch_bg_thread(std::function<void()> fn);
     StreamAttempt m_stream_attempt = StreamAttempt::Cached;

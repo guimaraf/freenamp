@@ -8,6 +8,19 @@
 #include <nlohmann/json.hpp>
 
 namespace freenamp::backend {
+namespace {
+
+bool has_usable_stream(const TrackMetadata& track) {
+    return track.is_resolved && !track.stream_url.empty() && !track.http_headers.empty() &&
+        !YtResolver::is_stream_url_expired(track.stream_url);
+}
+
+std::string stream_target(const TrackMetadata& track) {
+    const bool has_video_id = track.id.size() == 11 && YtResolver::detect_url_type(track.id) == UrlType::SingleVideo;
+    return (has_video_id || track.original_url.empty()) ? track.id : track.original_url;
+}
+
+} // namespace
 
 CoreController::CoreController(std::string ytdlp_path)
     : m_resolver(std::move(ytdlp_path)) {
@@ -21,7 +34,7 @@ void CoreController::shutdown() {
     if (m_shutdown.exchange(true)) return;
     ++m_current_resolve_id;
     m_resolver.cancel_pending();
-    m_playlist.shutdown_prefetch();
+    m_next_stream.reset();
     for (auto& worker : m_bg_threads) {
         if (worker.thread.joinable()) worker.thread.join();
     }
@@ -284,6 +297,7 @@ void CoreController::start_playlist_stream(const TrackMetadata& track, StreamAtt
 
 void CoreController::play_current_playlist_track(StreamAttempt attempt) {
     if (m_shutdown.load()) return;
+    m_next_stream.reset();
     m_status_error = false;
     const uint64_t request = ++m_current_resolve_id; // Also cancels old results on a cached switch.
     m_resolving_track = false;
@@ -293,8 +307,7 @@ void CoreController::play_current_playlist_track(StreamAttempt attempt) {
     const auto track = *current;
     const auto identity = PlaylistManager::track_identity(track);
     m_current_title = track.title;
-    if (attempt == StreamAttempt::Cached && track.is_resolved && !track.stream_url.empty() && !track.http_headers.empty() &&
-        !YtResolver::is_stream_url_expired(track.stream_url)) {
+    if (attempt == StreamAttempt::Cached && has_usable_stream(track)) {
         start_playlist_stream(track, StreamAttempt::Cached);
         return;
     }
@@ -309,8 +322,7 @@ void CoreController::play_current_playlist_track(StreamAttempt attempt) {
             ? "Renovando link de áudio..." : "Carregando stream de audio...";
     }
     notify_event("track_loading");
-    const bool has_video_id = track.id.size() == 11 && YtResolver::detect_url_type(track.id) == UrlType::SingleVideo;
-    const auto target = (has_video_id || track.original_url.empty()) ? track.id : track.original_url;
+    const auto target = stream_target(track);
     if (!launch_bg_thread([this, target, identity, request, track, attempt]() {
         std::optional<TrackMetadata> stream;
         std::string error;
@@ -385,6 +397,7 @@ void CoreController::toggle_pause() {
 
 void CoreController::stop() {
     m_status_error = false;
+    m_next_stream.reset();
     m_audio.stop();
     m_resolving_track = false;
     refresh_loading();
@@ -396,11 +409,27 @@ void CoreController::stop() {
 
 void CoreController::next() {
     auto next_tr = m_playlist.next();
-    if (next_tr.has_value()) {
-        play_current_playlist_track();
-    } else {
+    if (!next_tr) {
         stop();
+        return;
     }
+    if (!m_next_stream || m_next_stream->identity != PlaylistManager::track_identity(*next_tr) ||
+        m_next_stream->phase == NextStream::Phase::Failed) {
+        play_current_playlist_track();
+        return;
+    }
+
+    ++m_current_resolve_id;
+    m_audio.stop();
+    m_next_stream->selected = true;
+    m_current_title = next_tr->title;
+    m_status_error = false;
+    m_resolving_track = true;
+    refresh_loading();
+    m_loading_progress = 25;
+    m_status_message = "Preparando próxima faixa...";
+    update_next_stream(PlaybackState::Stopped);
+    if (m_resolving_track && m_next_stream) notify_event("track_loading");
 }
 
 void CoreController::previous() {
@@ -516,10 +545,107 @@ void CoreController::handle_playback_error() {
     }
 }
 
+void CoreController::resolve_next_stream(AudioFormatPreference format) {
+    auto& next = *m_next_stream;
+    next.phase = NextStream::Phase::Resolving;
+    next.tried_aac = format == AudioFormatPreference::CompatibleAac;
+    const auto request = next.request;
+    const auto target = stream_target(next.track);
+    if (!launch_bg_thread([this, request, target, format] {
+        std::optional<TrackMetadata> stream;
+        try {
+            if (!m_shutdown.load()) stream = m_resolver.resolve_track_info(target, true, true, format);
+        } catch (...) {}
+        post_completion([this, request, stream = std::move(stream)](bool allow_playback) {
+            if (!allow_playback || !m_next_stream || m_next_stream->request != request) return;
+            if (stream && has_usable_stream(*stream)) {
+                m_next_stream->track.stream_url = std::move(stream->stream_url);
+                m_next_stream->track.http_headers = std::move(stream->http_headers);
+                m_next_stream->track.is_resolved = true;
+                open_next_stream();
+            } else {
+                m_next_stream->phase = NextStream::Phase::Failed;
+            }
+        });
+    })) {
+        next.phase = NextStream::Phase::Failed;
+    }
+}
+
+void CoreController::open_next_stream() {
+    auto& next = *m_next_stream;
+    next.player = std::make_unique<AudioEngine>();
+    if (next.player->load_url(next.track.stream_url, false, next.track.http_headers)) {
+        next.phase = NextStream::Phase::Opening;
+        next.opening_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+    } else {
+        next.player.reset();
+        next.phase = NextStream::Phase::Failed;
+    }
+}
+
+void CoreController::update_next_stream(PlaybackState current_state) {
+    const bool selected = m_next_stream && m_next_stream->selected;
+    if (!selected && current_state != PlaybackState::Playing && !m_next_stream) return;
+
+    auto track = selected ? m_playlist.get_current_track()
+        : m_playlist.get_track(static_cast<size_t>(m_playlist.peek_next_index()));
+    const auto identity = track ? PlaylistManager::track_identity(*track) : std::string{};
+    if (m_next_stream && (!track || m_next_stream->identity != identity)) {
+        m_next_stream.reset();
+        if (selected) {
+            play_current_playlist_track();
+            if (!m_resolving_track) notify_event("loading_end");
+            return;
+        }
+    }
+    if (!m_next_stream) {
+        const auto duration = m_audio.get_duration();
+        if (!track || current_state != PlaybackState::Playing || duration <= 0 ||
+            duration - m_audio.get_position() > next_track_lead_seconds) return;
+        m_next_stream.emplace(NextStream{++m_next_stream_request, identity, std::move(*track)});
+        if (has_usable_stream(m_next_stream->track)) open_next_stream();
+        else resolve_next_stream(AudioFormatPreference::Best);
+        return;
+    }
+
+    auto& next = *m_next_stream;
+    if (next.phase == NextStream::Phase::Opening) {
+        next.player->get_state();
+        const bool loaded = next.player->is_file_loaded();
+        const bool timed_out = !loaded && std::chrono::steady_clock::now() >= next.opening_deadline;
+        if (next.player->has_playback_error() || timed_out || YtResolver::is_stream_url_expired(next.track.stream_url)) {
+            next.player.reset();
+            if (!next.tried_aac) {
+                resolve_next_stream(AudioFormatPreference::CompatibleAac);
+            } else {
+                next.phase = NextStream::Phase::Failed;
+            }
+        } else if (next.selected && loaded) {
+            if (m_audio.play_prepared(*next.player)) {
+                m_playlist.set_stream_for_identity(next.identity, next.track);
+                m_stream_attempt = next.tried_aac ? StreamAttempt::CompatibleAac : StreamAttempt::Preferred;
+                m_status_message = "Tocando: " + next.track.title;
+                m_loading_progress = 100;
+                m_resolving_track = false;
+                refresh_loading();
+                m_next_stream.reset();
+                notify_event("track_changed");
+                notify_event("loading_end");
+                return;
+            }
+            next.phase = NextStream::Phase::Failed;
+        }
+    }
+    if (next.selected && next.phase == NextStream::Phase::Failed) {
+        play_current_playlist_track();
+        if (!m_resolving_track) notify_event("loading_end");
+    }
+}
+
 void CoreController::update() {
     if (m_shutdown.load()) return;
     consume_completions(true);
-    m_playlist.apply_prefetch_result();
     PlaybackState state = m_audio.get_state();
     if (m_audio.has_playback_error()) {
         m_audio.clear_playback_error();
@@ -527,17 +653,11 @@ void CoreController::update() {
         return;
     }
 
-    if (state == PlaybackState::Playing) {
-        double pos = m_audio.get_position();
-        double dur = m_audio.get_duration();
-
-        // Check if pre-fetching the next track is needed
-        m_playlist.check_prefetch(m_resolver, pos, dur);
-    }
-
     // Background imports must not stall advancement of the current queue.
-    if (!m_resolving_track && m_audio.is_track_finished()) {
+    if (!m_resolving_track && m_audio.consume_track_finished()) {
         next();
+    } else {
+        update_next_stream(state);
     }
 }
 

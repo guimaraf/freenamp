@@ -5,6 +5,7 @@
 #include <cmath>
 #include <random>
 #include <algorithm>
+#include <utility>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -155,9 +156,14 @@ bool AudioEngine::load_url(const std::string& stream_url, bool autoplay,
 
     const char* cmd[] = { "loadfile", stream_url.c_str(), "replace", nullptr };
     m_track_ended = false;
+    m_file_loaded = false;
     m_playback_error = false;
     m_first_entry_id = 0;
     m_started_entry_id = 0;
+    if (!autoplay) {
+        int paused = 1;
+        if (mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused) < 0) return false;
+    }
     const int err = mpv_command(m_mpv, cmd);
     if (err < 0) {
         std::cerr << "[AudioEngine] Erro ao carregar URL no mpv: " << mpv_error_string(err) << "\n";
@@ -186,6 +192,29 @@ bool AudioEngine::load_url(const std::string& stream_url, bool autoplay,
     m_current_state = autoplay ? PlaybackState::Playing : PlaybackState::Paused;
     apply_equalizer();
 
+    return true;
+}
+
+bool AudioEngine::play_prepared(AudioEngine& prepared) {
+    if (this == &prepared) return false;
+    std::scoped_lock lock(m_mutex, prepared.m_mutex);
+    if (!prepared.m_file_loaded || !prepared.m_mpv) return false;
+
+    auto* player = prepared.m_mpv;
+    mpv_set_property(player, "volume", MPV_FORMAT_DOUBLE, &m_volume);
+    mpv_set_property(player, "balance", MPV_FORMAT_DOUBLE, &m_pan);
+    const auto filter = m_equalizer.build_mpv_filter_string();
+    mpv_set_property_string(player, "af", filter.c_str());
+    int paused = 0;
+    if (mpv_set_property(player, "pause", MPV_FORMAT_FLAG, &paused) < 0) return false;
+
+    std::swap(m_mpv, prepared.m_mpv);
+    m_first_entry_id = prepared.m_first_entry_id;
+    m_started_entry_id = prepared.m_started_entry_id;
+    m_file_loaded = true;
+    m_track_ended = false;
+    m_playback_error = false;
+    m_current_state = PlaybackState::Playing;
     return true;
 }
 
@@ -225,6 +254,7 @@ void AudioEngine::stop() {
     mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pause_val);
     m_current_state = PlaybackState::Stopped;
     m_track_ended = false;
+    m_file_loaded = false;
     m_playback_error = false;
     m_first_entry_id = 0;
     m_started_entry_id = 0;
@@ -296,10 +326,9 @@ PlaybackState AudioEngine::get_state() {
             const auto* end_data = static_cast<const mpv_event_end_file*>(event->data);
             if (end_data && m_started_entry_id > 0 && end_data->playlist_entry_id == m_started_entry_id) {
                 m_started_entry_id = 0;
+                m_file_loaded = false;
                 if (end_data->reason == MPV_END_FILE_REASON_EOF) {
-                    if (m_current_state == PlaybackState::Playing) {
-                        m_track_ended = true;
-                    }
+                    m_track_ended = true;
                     m_current_state = PlaybackState::Stopped;
                 } else if (end_data->reason == MPV_END_FILE_REASON_ERROR) {
                     std::cerr << "[AudioEngine] Erro ao carregar stream no mpv (motivo: "
@@ -308,6 +337,8 @@ PlaybackState AudioEngine::get_state() {
                     m_current_state = PlaybackState::Stopped;
                 }
             }
+        } else if (event->event_id == MPV_EVENT_FILE_LOADED && m_started_entry_id > 0) {
+            m_file_loaded = true;
         } else if (event->event_id == MPV_EVENT_PLAYBACK_RESTART && m_started_entry_id > 0) {
             m_current_state = PlaybackState::Playing;
 #ifdef _WIN32
@@ -363,14 +394,14 @@ double AudioEngine::get_duration() {
     return 0.0;
 }
 
-bool AudioEngine::is_track_finished() {
-    get_state(); // Polls mpv events
+bool AudioEngine::consume_track_finished() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (m_track_ended) {
-        m_track_ended = false; // Consume the event once!
-        return true;
-    }
-    return false;
+    return std::exchange(m_track_ended, false);
+}
+
+bool AudioEngine::is_file_loaded() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_file_loaded;
 }
 
 void AudioEngine::apply_equalizer() {

@@ -36,6 +36,7 @@ public:
     // Core Controls
     bool load_url(const std::string& stream_url, bool autoplay = true,
                   const std::map<std::string, std::string>& headers = {});
+    bool play_prepared(AudioEngine& prepared);
     void play();
     void pause();
     void toggle_pause();
@@ -53,7 +54,8 @@ public:
     PlaybackState get_state();
     double get_position();
     double get_duration();
-    bool is_track_finished();
+    bool consume_track_finished();
+    bool is_file_loaded() const;
     bool has_playback_error() const;
     void clear_playback_error();
 
@@ -73,6 +75,7 @@ private:
     double m_volume = 100.0;
     double m_pan = 0.0;
     bool m_track_ended = false;
+    bool m_file_loaded = false;
     bool m_playback_error = false;
     std::int64_t m_first_entry_id = 0;
     std::int64_t m_started_entry_id = 0;

@@ -46,15 +46,10 @@ int PlaylistManager::find_track(const std::string& identity) const {
     return -1;
 }
 
-bool PlaylistManager::set_stream_for_identity(const std::string& identity, const TrackMetadata& resolved,
-                                             bool only_if_needed) {
+bool PlaylistManager::set_stream_for_identity(const std::string& identity, const TrackMetadata& resolved) {
     std::lock_guard<std::mutex> lock(m_mutex);
     for (auto& track : m_tracks) {
         if (track_identity(track) == identity) {
-            if (only_if_needed && track.is_resolved && !track.stream_url.empty() && !track.http_headers.empty() &&
-                !YtResolver::is_stream_url_expired(track.stream_url)) {
-                return false;
-            }
             track.stream_url = resolved.stream_url;
             track.is_resolved = resolved.is_resolved;
             track.http_headers = resolved.http_headers;
@@ -474,55 +469,6 @@ void PlaylistManager::rebuild_shuffle_indices() {
     if (m_current_index >= 0) {
         auto it = std::find(m_shuffle_indices.begin(), m_shuffle_indices.end(), static_cast<size_t>(m_current_index));
         if (it != m_shuffle_indices.end()) std::iter_swap(m_shuffle_indices.begin(), it);
-    }
-}
-
-PlaylistManager::~PlaylistManager() {
-    shutdown_prefetch();
-}
-
-void PlaylistManager::shutdown_prefetch() {
-    m_prefetch_shutdown = true;
-    if (m_prefetch_thread.joinable()) m_prefetch_thread.join();
-    m_prefetch_result.reset();
-    m_prefetch_identity.clear();
-}
-
-void PlaylistManager::apply_prefetch_result() {
-    if (!m_prefetch_done.load()) return;
-    if (m_prefetch_thread.joinable()) m_prefetch_thread.join();
-    if (!m_prefetch_shutdown && m_prefetch_result && m_prefetch_result->is_resolved) {
-        set_stream_for_identity(m_prefetch_identity, *m_prefetch_result, true);
-    } else {
-        // A failing extractor must not launch a new request every UI frame.
-        m_prefetch_retry_after = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    }
-    m_prefetch_result.reset();
-    m_prefetch_identity.clear();
-    m_prefetch_done.store(false);
-}
-
-void PlaylistManager::check_prefetch(YtResolver& resolver, double current_pos, double total_dur) {
-    apply_prefetch_result();
-    if (m_prefetch_shutdown || m_prefetch_thread.joinable() ||
-        std::chrono::steady_clock::now() < m_prefetch_retry_after || total_dur <= 0.0 ||
-        total_dur - current_pos > 15.0) return;
-    const int index = peek_next_index();
-    if (index < 0) return;
-    auto track = get_track(static_cast<size_t>(index));
-    if (!track || (track->is_resolved && !track->stream_url.empty() && !track->http_headers.empty() &&
-        !YtResolver::is_stream_url_expired(track->stream_url))) return;
-    m_prefetch_identity = track_identity(*track);
-    const auto target = !track->original_url.empty() ? track->original_url : track->id;
-    try {
-        m_prefetch_thread = std::thread([this, &resolver, target]() {
-            try { m_prefetch_result = resolver.resolve_track_info(target); }
-            catch (...) { m_prefetch_result.reset(); }
-            m_prefetch_done.store(true);
-        });
-    } catch (...) {
-        m_prefetch_identity.clear();
-        m_prefetch_retry_after = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     }
 }
 
